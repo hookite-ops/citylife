@@ -14,6 +14,8 @@ import { setAniso } from './textures.js';
 import { MartRoom } from './mart.js';
 import { MartGame, stars } from './martgame.js';
 import { Cooking } from './cooking.js';
+import { SchoolRoom } from './school.js';
+import { SchoolGame } from './schoolgame.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 
 // ───────── 품질 ─────────
@@ -50,7 +52,8 @@ const audio = new Audio(); setAudio(audio);
 audio.setEnabled(S.settings.sound);
 
 let city, sky, traffic, peds, interior, human, controls, mart, martGame, cooking;
-let room = null;          // 지금 들어가 있는 실내 (interior | mart)
+let room = null;          // 지금 들어가 있는 실내 (interior | mart | school)
+let school, schoolGame, schoolEntrance = null;
 let martEntrance = null;  // 들어온 편의점 입구
 S.inventory.ing = S.inventory.ing || {};
 if (S.inventory.food.ramen) { S.inventory.food.cupramen = (S.inventory.food.cupramen || 0) + S.inventory.food.ramen; delete S.inventory.food.ramen; }
@@ -103,6 +106,11 @@ async function boot() {
   cooking = new Cooking({
     get S() { return S; }, interior, human, player, audio, persist, foodInfo,
     setBusy: (v) => { busy = v; }, eatAtHome: (k) => eatAtHome(k), focusKitchen: (v) => { cam.kitchen = v; },
+  });
+  school = new SchoolRoom();
+  schoolGame = new SchoolGame({
+    get S() { return S; }, room: school, player, human, audio, earn, pay, persist,
+    setBusy: (v) => { busy = v; }, exit: () => exitSchool(), refreshPeriod: () => schoolGame.refresh(schoolEntrance.school, true),
   });
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
@@ -252,7 +260,7 @@ function loop(now) {
   const phoneOpen = !$('phone').classList.contains('hidden');
   const mgOpen = !$('mg').classList.contains('hidden');
   const paused = sheetOpen() || phoneOpen || mgOpen || busy;
-  const shift = mode === 'mart' && martGame.onShift;
+  const shift = (mode === 'mart' && martGame.onShift) || (mode === 'school' && !!schoolGame.duty);
   const timeFrozen = sheetOpen() || phoneOpen || (!shift && (mgOpen || busy));
   if (!timeFrozen) {
     const actMode = shift ? 'work' : inCar ? 'drive' : player.speed > 3 ? 'run' : player.speed > 0.3 ? 'walk' : 'idle';
@@ -260,7 +268,7 @@ function loop(now) {
     ST.passTime(S, dt * MIN_PER_SEC * (shift ? 2 : 1), actMode);
     needWarnings(before);
   }
-  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); }
+  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); schoolGame.dailyCheck(); if (mode === 'school') schoolGame.refresh(schoolEntrance.school); }
   const hours = ST.hour(S);
   if (mode === 'city') {
     const focus = inCar && pcar ? pcar.pos : player.pos;
@@ -306,6 +314,17 @@ function loop(now) {
     audio.ambient(false, true);
     audio.engine(false, 0, 0, 30);
     renderer.render(mart.scene, camera);
+  } else if (mode === 'school') {
+    sky.update(hours, player.pos, dt);
+    renderer.toneMappingExposure = 1;
+    if (!paused) updateRoomWalking(dt);
+    school.update(paused ? 0 : dt, player.pos);
+    updateRoomCamera(dt);
+    school.updateWalls(camera, sky.night);
+    if (!paused) { const a = schoolGame.action(school.zoneAt(player.pos), schoolEntrance.school); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
+    audio.ambient(false, true);
+    audio.engine(false, 0, 0, 30);
+    renderer.render(school.scene, camera);
   }
   hudT -= dt; if (hudT <= 0) { hudT = 0.25; updateHUD(); }
   saveT += dt; if (saveT > 20) { saveT = 0; persist(); }
@@ -317,6 +336,7 @@ function persist() {
     const h = city.entrances.find(e => e.id === 'home');
     S.player = { x: S.player?.x ?? h.x, z: S.player?.z ?? h.z, h: S.player?.h ?? 0, inside: true };
   }
+  else if (mode === 'school' && schoolEntrance) S.player = { x: schoolEntrance.x, z: schoolEntrance.z - 1.4, h: schoolEntrance.face, inside: false };
   else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x, z: martEntrance.z + (martEntrance.face === 0 ? 1.4 : -1.4), h: martEntrance.face, inside: false };
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
@@ -549,6 +569,7 @@ function openPlace(e) {
   switch (e.id) {
     case 'home': return enterHome();
     case 'mart': return enterMart(e);
+    case 'school': return schoolGame.gate(e, () => enterSchool(e));
     case 'rest': return restSheet();
     case 'office': return officeSheet();
     case 'delivery': return deliverySheet();
@@ -567,6 +588,11 @@ function pay(amount, reason) {
 }
 function earn(amount, reason) {
   amount = Math.round(amount / 10) * 10;
+  if (S.loan > 0) {
+    const repay = Math.min(S.loan, Math.round(amount * 0.2 / 10) * 10);
+    S.loan -= repay; amount -= repay;
+    reason += ` (학자금 상환 ${won(repay)}${S.loan <= 0 ? ' · 대출 다 갚았어요!' : ''})`;
+  }
   S.money += amount; S.totalEarned += amount; flashMoney(true);
   audio.coin();
   toast(`💰 ${reason} +${won(amount)}`, 'good', 3200);
@@ -620,6 +646,8 @@ function updateHUD(force) {
     html = `📍 ${S.waypoint.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span>`;
   } else if (mode === 'mart') {
     html = martGame.hudText();
+  } else if (mode === 'school') {
+    html = schoolGame.hudText(schoolEntrance.school);
   } else if (mode === 'city') {
     const g = GOALS.find(g => !S.goalsDone?.includes(g.id));
     if (g) html = `🎯 ${g.text}<small>${g.hint}</small>`;
@@ -1084,6 +1112,43 @@ function exitMart() {
     busy = false;
   });
 }
+async function enterSchool(e) {
+  busy = true;
+  await fade(true);
+  mode = 'school';
+  schoolEntrance = e;
+  school.build(e.school);
+  enterRoomCommon(school);
+  player.pos.set(0, 0, 6.6);
+  player.heading = Math.PI;
+  cam.yaw = 0.25; cam.pitch = 0.95; cam.tdist = 5;
+  human.root.position.copy(player.pos);
+  schoolGame.onEnter(e.school);
+  updateRoomCamera(10);
+  await fade(false);
+  busy = false;
+  if (!S.schoolVisited) { S.schoolVisited = true; setTimeout(() => toast('🏫 왼쪽: 교실 · 가운데: ' + (e.school === 'univ' ? '도서관 (행정실은 복도)' : '교무실') + ' · 오른쪽: 급식실'), 600); }
+}
+function exitSchool() {
+  const go = async () => {
+    busy = true;
+    await fade(true);
+    leaveRoom();
+    placeAtEntrance({ ...schoolEntrance, face: Math.PI });
+    persist();
+    await fade(false);
+    busy = false;
+  };
+  if (schoolGame.duty && schoolGame.T.level === schoolEntrance.school) {
+    openSheet({
+      icon: '🏃', title: '조퇴할까요?', sub: '아직 근무 중이에요',
+      html: `<p class="note">지금 나가면 오늘 근무가 끝나고 평가가 깎여요.</p><button class="btn wide red" data-act="go">조퇴하기</button><button class="btn wide gray" data-act="stay">계속 근무</button>`,
+      bind: (b) => bindActs(b, { go: async () => { closeSheet(); await schoolGame.clockOut(true); closeSheet(); go(); }, stay: () => closeSheet() }),
+    });
+    return;
+  }
+  go();
+}
 function updateMartInteract() {
   const extra = martGame.extraAction(player.pos);
   const a = extra || martGame.action(mart.zoneAt(player.pos));
@@ -1122,6 +1187,7 @@ function updateRoomCamera(dt) {
   let target, dist, pitch, yaw = cam.yaw;
   if (editing) { target = new THREE.Vector3(0, 0, 0); dist = base * 1.25; pitch = 1.15; }
   else if (cam.kitchen && r === interior) { target = new THREE.Vector3(interior.stove.x + 0.3, 1.0, interior.stove.z); dist = 2.6; pitch = 0.6; yaw = Math.PI / 2 - 0.55; }
+  else if (r === school) { target = new THREE.Vector3(player.pos.x, 1.0, player.pos.z * 0.7); dist = 10.5 + cam.tdist - 5; pitch = cam.pitch; }
   else { target = new THREE.Vector3(player.pos.x * 0.6, 1.0, player.pos.z * 0.6); dist = THREE.MathUtils.clamp(base * 0.95, 7, 17) + cam.tdist - 5; pitch = cam.pitch; }
   if (camera.aspect < 1 && !cam.kitchen) dist *= 1 + (1 - camera.aspect) * 0.9;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -1390,6 +1456,7 @@ async function faint() {
   if (martGame.onShift) await martGame.endShift(true);
   if (inCar) { pcar.speed = 0; exitCar(); }
   if (mode === 'mart') { mart.clearNpcs(); leaveRoom(); }
+  if (mode === 'school') { if (schoolGame.duty) await schoolGame.clockOut(true); leaveRoom(); }
   await fade(true);
   bigMsg('😵 기절했어요…', '구급차에 실려 갔어요. 병원비 50,000원', 3000);
   await wait(2600);
@@ -1419,7 +1486,7 @@ function openPhone(app) {
   if (app === 'map') return phoneMap();
   const apps = [
     ['map', '🗺️', '지도·택시', '#2a9d8f'], ['bank', '💳', '은행', '#264653'], ['me', '🧑', '내 정보', '#e76f51'], ['goals', '🏆', '인생 목표', '#f4a261'],
-    ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['job', '🧑‍💼', '알바', '#1f8a4c'],
+    ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['job', '🧑‍💼', '알바', '#1f8a4c'], ['school', '🎓', '학교', '#5a3a8a'],
     ['settings', '⚙️', '설정', '#6c757d'],
   ];
   phScreen.innerHTML = `<div class="ph-widget"><div style="font-size:13px;opacity:.8">${ST.day(S)}일차 · ${DAYNAMES[(ST.day(S) - 1) % 7]}</div><div class="big">${ST.clock(S).text}</div><div style="font-size:13px;opacity:.8">잔액 ${won(S.money)}</div></div>
@@ -1429,6 +1496,13 @@ function openPhone(app) {
 function phoneApp(id) {
   if (id === 'map') return phoneMap();
   if (id === 'bag') { closePhone(); return fridgeSheet(true); }
+  if (id === 'school') {
+    const U = S.uni, T = S.teach;
+    if (T?.hired) { closePhone(); return schoolGame.teachSheet(); }
+    if (U && (U.enrolled || U.major)) { closePhone(); return schoolGame.statusSheet(); }
+    phScreen.innerHTML = `<div class="ph-title">🎓 학교</div><p class="note" style="color:#ddd">한빛대학교 행정실에서 입학할 수 있어요. 교육학과를 졸업하면 초·중·고 선생님이 될 수 있어요.</p>`;
+    return;
+  }
   if (id === 'job') {
     const M = S.mart;
     if (!M || !M.hired) { phScreen.innerHTML = `<div class="ph-title">🧑‍💼 알바</div><p class="note" style="color:#ddd">아직 알바를 안 하고 있어요. 24 마트 계산대에서 "알바 문의하기"를 눌러 보세요.</p>`; return; }
@@ -1512,7 +1586,7 @@ function phoneMap() {
 }
 async function taxi(e) {
   if (inCar) { toast('운전 중에는 택시를 부를 수 없어요', 'bad'); return; }
-  if (martGame.onShift) { toast('근무 중이에요! 퇴근하고 가요', 'bad'); return; }
+  if (martGame.onShift || schoolGame.duty) { toast('근무 중이에요! 퇴근하고 가요', 'bad'); return; }
   if (mode === 'mart' && martGame.basketCount()) { toast('계산 안 한 물건이 있어요', 'bad'); return; }
   const p = player.pos;
   const d = mode !== 'city' ? Math.hypot(e.x - city.entrances.find(x => x.id === 'home').x, e.z - city.entrances.find(x => x.id === 'home').z) : Math.hypot(e.x - p.x, e.z - p.z);
@@ -1563,4 +1637,5 @@ resize();
 boot().catch(err => { $('loadTxt').textContent = '오류: ' + err.message; console.error(err); });
 
 // 디버그/테스트용
-window.__game = { renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => enterMart(city.entrances.find(e => e.id === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+window.__game = { get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => enterSchool(city.entrances.find(e => e.school === t)),
+  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => enterMart(city.entrances.find(e => e.id === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

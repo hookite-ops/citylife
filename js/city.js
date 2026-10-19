@@ -5,13 +5,21 @@ import * as T from './textures.js';
 
 // 블록 용도 지도 (행 j, 열 i)
 const ZONES = [
-  'RRCCRR',
+  'HRCCRR',
   'RPCCCR',
   'CCDDCR',
   'CCDDCC',
-  'RRCCRR',
-  'RRRCRR',
+  'ERCCRM',
+  'RRRCRU',
 ];
+
+// 학교 (블록 하나 전체): E 초등 · M 중 · H 고 · U 대학
+export const SCHOOLS = {
+  E: { type: 'elem', name: '한빛초등학교', icon: '🎒', color: '#2a7a4a', h: 14, floors: 4 },
+  M: { type: 'middle', name: '한빛중학교', icon: '🏫', color: '#2a4a8a', h: 14, floors: 4 },
+  H: { type: 'high', name: '한빛고등학교', icon: '🏫', color: '#6a2a2a', h: 17.5, floors: 5 },
+  U: { type: 'univ', name: '한빛대학교', icon: '🎓', color: '#1a2a5a', h: 24.5, floors: 7 },
+};
 
 // 특수 건물: "i,j,q" (q: 0=북서 1=북동 2=남서 3=남동)
 export const SPECIALS = {
@@ -224,6 +232,7 @@ export class City {
       const r = blockRect(i, j);
       const zone = ZONES[j][i];
       if (zone === 'P') { this.buildPark(r, props); continue; }
+      if (SCHOOLS[zone]) { this.buildSchool(r, SCHOOLS[zone], addBuilding, props, store); continue; }
       const ix0 = r.x0 + SIDEWALK, iz0 = r.z0 + SIDEWALK, ix1 = r.x1 - SIDEWALK, iz1 = r.z1 - SIDEWALK;
       const hw = (ix1 - ix0) / 2;
       for (let q = 0; q < 4; q++) {
@@ -326,6 +335,76 @@ export class City {
       this.group.add(ring);
       this.rings.push(ring);
     }
+  }
+
+  buildSchool(r, sc, addBuilding, props, store) {
+    const ix0 = r.x0 + SIDEWALK, iz0 = r.z0 + SIDEWALK, ix1 = r.x1 - SIDEWALK, iz1 = r.z1 - SIDEWALK;
+    const cx = r.cx;
+    // 본관 (뒤쪽)
+    const bz1 = iz1 - 2, bz0 = bz1 - (sc.type === 'univ' ? 18 : 15);
+    const bx0 = ix0 + 4, bx1 = ix1 - 4;
+    const kind = sc.type === 'univ' ? 'beige' : sc.type === 'elem' ? 'white' : 'beige';
+    addBuilding(kind, bx0, bz0, bx1, bz1, sc.h);
+    this.colliders.push({ x0: bx0, z0: bz0, x1: bx1, z1: bz1, h: sc.h });
+    if (sc.type === 'univ') {
+      // 시계탑
+      addBuilding('brick', cx - 3, bz0 - 0.5, cx + 3, bz0 + 5, sc.h + 10);
+      props.setColor(0xf2f2ee); props.cbox(cx, sc.h + 6, bz0 - 0.55, 3.2, 3.2, 0.1);
+      props.setColor(0x222222); props.cbox(cx, sc.h + 6.4, bz0 - 0.62, 0.15, 1.2, 0.05); props.cbox(cx + 0.4, sc.h + 6, bz0 - 0.62, 0.9, 0.15, 0.05);
+    }
+    // 현관 캐노피 + 유리문
+    props.setColor(0xd8d8d2); props.cbox(cx, 3.6, bz0 - 1.6, 8, 0.25, 3.2);
+    props.setColor(0x9a9a94); props.cbox(cx - 3.8, 1.8, bz0 - 3.0, 0.3, 3.6, 0.3); props.cbox(cx + 3.8, 1.8, bz0 - 3.0, 0.3, 3.6, 0.3);
+    store.wall(cx + 3, bz0 - 0.06, cx - 3, bz0 - 0.06, 0.2, 3.2);
+    // 운동장 (흙) 또는 잔디 광장
+    const fz0 = iz0 + 3, fz1 = bz0 - 4, fx0 = ix0 + 3, fx1 = ix1 - 3;
+    const field = new THREE.Mesh(new THREE.PlaneGeometry(fx1 - fx0, fz1 - fz0), sc.type === 'univ' ? this.mat.grass : this.fieldMat());
+    field.rotation.x = -Math.PI / 2; field.position.set((fx0 + fx1) / 2, 0.195, (fz0 + fz1) / 2); field.receiveShadow = true;
+    this.group.add(field);
+    if (sc.type !== 'univ') {
+      // 축구 골대
+      for (const s of [-1, 1]) {
+        const gx = (fx0 + fx1) / 2 + s * ((fx1 - fx0) / 2 - 1.5), gz = (fz0 + fz1) / 2;
+        props.setColor(0xf2f2f2);
+        props.cbox(gx, 1.1, gz - 2.5, 0.12, 2.2, 0.12); props.cbox(gx, 1.1, gz + 2.5, 0.12, 2.2, 0.12); props.cbox(gx, 2.2, gz, 0.12, 0.12, 5.1);
+      }
+      // 구령대
+      props.setColor(0xb0a898); props.cbox(cx + 14, 0.6, fz1 + 1.5, 6, 1.0, 3);
+    } else {
+      // 캠퍼스 산책로 + 벤치
+      props.setColor(0xc8c0b0); props.cbox(cx, 0.21, (fz0 + fz1) / 2, 4, 0.02, fz1 - fz0);
+      for (let k = 0; k < 6; k++) { props.setColor(0x7a5236); props.cbox(cx + (k % 2 ? 4 : -4), 0.5, fz0 + 4 + k * 3.5, 0.6, 0.1, 1.8); }
+    }
+    // 담장 (정문 자리만 비움)
+    props.setColor(sc.type === 'univ' ? 0x8a7a6a : 0x3a6a4a);
+    const fh = sc.type === 'univ' ? 0.9 : 1.6, gate = 5;
+    const fence = (x0, z0, x1, z1) => { props.box(x0, 0.18, z0, x1, fh, z1); this.colliders.push({ x0, z0, x1, z1, h: fh, soft: true }); };
+    fence(ix0, iz0, cx - gate, iz0 + 0.25); fence(cx + gate, iz0, ix1, iz0 + 0.25);
+    fence(ix0, iz0, ix0 + 0.25, iz1); fence(ix1 - 0.25, iz0, ix1, iz1);
+    fence(ix0, iz1 - 0.25, ix1, iz1);
+    // 교문 기둥 + 이름판
+    props.setColor(0xb8b0a0); props.cbox(cx - gate - 0.4, 1.4, iz0 + 0.1, 0.8, 2.8, 0.8); props.cbox(cx + gate + 0.4, 1.4, iz0 + 0.1, 0.8, 2.8, 0.8);
+    const signSp = { id: 'school', sign: [sc.name, sc.color, '#ffffff', sc.type === 'univ' ? 'HANBIT UNIVERSITY' : ''] };
+    this.addSign(signSp, cx, bz0, -1, sc.h - 2.5);
+    // 입구
+    const ent = { id: 'school', school: sc.type, name: sc.name, icon: sc.icon, x: cx, z: bz0 - 2.2, face: Math.PI, key: 'school-' + sc.type };
+    this.entrances.push(ent);
+    this.doors.push({ x: cx, z: iz0 - 1.5, name: sc.name + ' 정문' });
+  }
+  fieldMat() {
+    if (this._field) return this._field;
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const x = c.getContext('2d');
+    x.fillStyle = '#b8936a'; x.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 6000; i++) { x.fillStyle = `rgba(${90 + Math.random() * 60},${70 + Math.random() * 40},${50 + Math.random() * 30},0.25)`; x.fillRect(Math.random() * 512, Math.random() * 512, 2, 2); }
+    x.strokeStyle = 'rgba(255,255,255,0.85)'; x.lineWidth = 4;
+    x.beginPath(); x.roundRect(40, 90, 432, 332, 166); x.stroke();
+    x.beginPath(); x.roundRect(70, 120, 372, 272, 136); x.stroke();
+    x.beginPath(); x.moveTo(256, 120); x.lineTo(256, 392); x.stroke();
+    x.beginPath(); x.arc(256, 256, 40, 0, 7); x.stroke();
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+    this._field = new THREE.MeshStandardMaterial({ map: t, roughness: 1 });
+    return this._field;
   }
 
   randomPlaceName(zone, kind) {
