@@ -11,6 +11,10 @@ import { Interior, INTERACT } from './interior.js';
 import * as ST from './state.js';
 import { $, toast, openSheet, closeSheet, sheetOpen, fade, bigMsg, wait, row, bindActs, setAudio } from './ui.js';
 import { setAniso } from './textures.js';
+import { MartRoom } from './mart.js';
+import { MartGame, stars } from './martgame.js';
+import { Cooking } from './cooking.js';
+import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 
 // ───────── 품질 ─────────
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -45,10 +49,14 @@ const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 25
 const audio = new Audio(); setAudio(audio);
 audio.setEnabled(S.settings.sound);
 
-let city, sky, traffic, peds, interior, human, controls;
+let city, sky, traffic, peds, interior, human, controls, mart, martGame, cooking;
+let room = null;          // 지금 들어가 있는 실내 (interior | mart)
+let martEntrance = null;  // 들어온 편의점 입구
+S.inventory.ing = S.inventory.ing || {};
+if (S.inventory.food.ramen) { S.inventory.food.cupramen = (S.inventory.food.cupramen || 0) + S.inventory.food.ramen; delete S.inventory.food.ramen; }
 let pcar = null;        // 플레이어 소유 차량 (현재 선택된 차)
 let inCar = false;
-let mode = 'title';     // title | city | home
+let mode = 'title';     // title | city | home | mart
 let editing = false;
 let busy = false;       // 연출 중 (입력 막기)
 let elapsed = 0;
@@ -82,6 +90,20 @@ async function boot() {
   interior = new Interior(renderer);
   human = createHuman({ skin: 0xe9c6a2, hair: 0x1c1410, shirt: 0xf2f2f0, jacket: 0x2e3f57, pants: 0x2a2f38, shoes: 0xf4f4f4 });
   scene.add(human.root);
+  // 알바 조끼
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.212, 0.168, 0.46, 12).scale(1, 1, 0.66).translate(0, 1.31, 0), new THREE.MeshStandardMaterial({ color: 0x1f8a4c, roughness: 0.8 }));
+  const tag = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.03, 0.01), new THREE.MeshStandardMaterial({ color: 0xffffff })); tag.position.set(0.08, 1.42, 0.14);
+  vest.add(tag); vest.visible = false; vest.castShadow = true; human.body.add(vest);
+  human.applyUniform = (on) => { vest.visible = on; };
+  mart = new MartRoom();
+  martGame = new MartGame({
+    get S() { return S; }, room: mart, player, human, audio, earn, pay, persist, foodInfo,
+    eatFood: (id, o) => eatFood(id, o), setBusy: (v) => { busy = v; }, exit: () => exitMart(),
+  });
+  cooking = new Cooking({
+    get S() { return S; }, interior, human, player, audio, persist, foodInfo,
+    setBusy: (v) => { busy = v; }, eatAtHome: (k) => eatAtHome(k), focusKitchen: (v) => { cam.kitchen = v; },
+  });
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
   // 타이틀 배경용 카메라 위치
@@ -140,6 +162,7 @@ async function startGame(fresh) {
   spawnPlayerCar();
   if (!fresh && S.player?.inCar && pcar) enterCar(true);
   if (!fresh && S.player?.inside) await enterHome(true);
+  if (S.mart?.shift) S.mart.shift = null; // 근무 중에 꺼졌으면 근무는 취소
   updateHUD(true);
   if (fresh || S.tutorial) {
     bigMsg('도시생활에 오신 걸 환영해요', '1일차 아침. 지갑엔 8만 원, 원룸 한 칸이 전부예요.', 3600);
@@ -208,7 +231,7 @@ function currentTarget() {
 }
 
 // ───────── 메인 루프 ─────────
-let last = performance.now(), hudT = 0, miniT = 0, saveT = 0, fpsAcc = 0, fpsN = 0;
+let last = performance.now(), hudT = 0, miniT = 0, saveT = 0, checkT = 0;
 function loop(now) {
   requestAnimationFrame(loop);
   window.__frames++;
@@ -226,13 +249,18 @@ function loop(now) {
     renderer.render(scene, camera);
     return;
   }
-  const paused = sheetOpen() || !$('phone').classList.contains('hidden') || !$('mg').classList.contains('hidden') || busy;
-  if (!paused) {
-    const actMode = inCar ? 'drive' : player.speed > 3 ? 'run' : player.speed > 0.3 ? 'walk' : 'idle';
+  const phoneOpen = !$('phone').classList.contains('hidden');
+  const mgOpen = !$('mg').classList.contains('hidden');
+  const paused = sheetOpen() || phoneOpen || mgOpen || busy;
+  const shift = mode === 'mart' && martGame.onShift;
+  const timeFrozen = sheetOpen() || phoneOpen || (!shift && (mgOpen || busy));
+  if (!timeFrozen) {
+    const actMode = shift ? 'work' : inCar ? 'drive' : player.speed > 3 ? 'run' : player.speed > 0.3 ? 'walk' : 'idle';
     const before = S.energy;
-    ST.passTime(S, dt * MIN_PER_SEC, actMode);
+    ST.passTime(S, dt * MIN_PER_SEC * (shift ? 2 : 1), actMode);
     needWarnings(before);
   }
+  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); }
   const hours = ST.hour(S);
   if (mode === 'city') {
     const focus = inCar && pcar ? pcar.pos : player.pos;
@@ -254,13 +282,30 @@ function loop(now) {
   } else if (mode === 'home') {
     sky.update(hours, player.pos, dt);
     renderer.toneMappingExposure = 1;
-    if (!paused && !editing) updateHomeWalking(dt);
-    updateHomeCamera(dt);
+    if (!paused && !editing) updateRoomWalking(dt);
+    updateRoomCamera(dt);
     interior.update(sky.night, sky.uniforms.top.value, sky.uniforms.horizon.value, camera);
+    if (!cooking.active) interior.steamTick(dt, 0);
     if (!paused && !editing) updateHomeInteract();
     audio.ambient(sky.night > 0.5, true);
     audio.engine(false, 0, 0, 30);
     renderer.render(interior.scene, camera);
+  } else if (mode === 'mart') {
+    sky.update(hours, player.pos, dt);
+    renderer.toneMappingExposure = 1;
+    if (!paused) updateRoomWalking(dt);
+    const npcDt = sheetOpen() || phoneOpen ? 0 : dt;
+    mart.updateNpcs(npcDt, player.pos, { atCounter: (c, d) => martGame.atCounter(c, d) });
+    if (!timeFrozen) martGame.update(dt);
+    mart.updateDoor(dt, player.pos);
+    mart.updateWarn(martGame.onShift, elapsed);
+    mart.updateFx(dt);
+    updateRoomCamera(dt);
+    mart.updateWalls(camera);
+    if (!paused) updateMartInteract();
+    audio.ambient(false, true);
+    audio.engine(false, 0, 0, 30);
+    renderer.render(mart.scene, camera);
   }
   hudT -= dt; if (hudT <= 0) { hudT = 0.25; updateHUD(); }
   saveT += dt; if (saveT > 20) { saveT = 0; persist(); }
@@ -272,6 +317,7 @@ function persist() {
     const h = city.entrances.find(e => e.id === 'home');
     S.player = { x: S.player?.x ?? h.x, z: S.player?.z ?? h.z, h: S.player?.h ?? 0, inside: true };
   }
+  else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x, z: martEntrance.z + (martEntrance.face === 0 ? 1.4 : -1.4), h: martEntrance.face, inside: false };
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
   ST.save(S);
@@ -502,7 +548,7 @@ window.addEventListener('keydown', (e) => {
 function openPlace(e) {
   switch (e.id) {
     case 'home': return enterHome();
-    case 'mart': return martSheet();
+    case 'mart': return enterMart(e);
     case 'rest': return restSheet();
     case 'office': return officeSheet();
     case 'delivery': return deliverySheet();
@@ -572,6 +618,8 @@ function updateHUD(force) {
     html = S.delivery.stage === 'pickup' ? `📦 <b>${t.name}</b>에서 음식 픽업 <span class="dist">${dd}m</span><small>${won(S.delivery.pay)} 배달 · 빛기둥을 따라가세요</small>` : `🛵 <b>${t.name}</b>로 배달 <span class="dist">${dd}m</span><small>${won(S.delivery.pay)} · 시간 안에 가면 팁!</small>`;
   } else if (S.waypoint) {
     html = `📍 ${S.waypoint.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span>`;
+  } else if (mode === 'mart') {
+    html = martGame.hudText();
   } else if (mode === 'city') {
     const g = GOALS.find(g => !S.goalsDone?.includes(g.id));
     if (g) html = `🎯 ${g.text}<small>${g.hint}</small>`;
@@ -658,35 +706,14 @@ function drawMinimap() {
 }
 mini.addEventListener('click', () => openPhone('map'));
 
-// ───────── 장소: 편의점 ─────────
+// ───────── 음식 ─────────
 function foodRows(where) {
   return FOODS.filter(f => f.where === where).map(f => row({
     icon: foodIcon(f.id), title: f.name, desc: `배고픔 +${f.hunger}${f.energy ? ` · 에너지 +${f.energy}` : ''}`, price: won(f.price),
-    btn: where === 'rest' ? '주문' : '먹기', action: 'eat:' + f.id,
-    extra: where === 'mart' ? `<button class="btn gray" data-act="bag:${f.id}">담기</button>` : '',
+    btn: '주문', action: 'eat:' + f.id,
   })).join('');
 }
 function foodIcon(id) { return { kimbap: '🍙', ramen: '🍜', sand: '🥪', dosirak: '🍱', coffee: '☕', energy: '🥫', kimchi: '🍲', bulgogi: '🥘', galbi: '🥩' }[id] || '🍽️'; }
-function martSheet() {
-  const shift = S.martShifts;
-  openSheet({
-    icon: '🏪', title: '24 마트', sub: '24시간 편의점 · 어서오세요!',
-    html: `<div class="tabs"><button class="on" data-tab="shop">🛒 쇼핑</button><button data-tab="job">🧑‍💼 알바</button></div>
-      <div data-pane="shop">${foodRows('mart')}</div>
-      <div data-pane="job" class="hidden">
-        <p class="note">계산대 알바 · 시급 <b>${won(WAGE_MART)}</b><br>3시간 근무 (손님 물건을 스캔하는 미니게임) · 잘하면 보너스!<br>지금까지 근무: <b>${shift}회</b></p>
-        <button class="btn wide green" data-act="work">알바 시작 (3시간)</button>
-      </div>`,
-    bind: (b) => {
-      tabs(b);
-      bindActs(b, {
-        eat: (id) => { const f = FOODS.find(x => x.id === id); if (pay(f.price)) eat(f); },
-        bag: (id) => { const f = FOODS.find(x => x.id === id); if (pay(f.price)) { S.inventory.food[id] = (S.inventory.food[id] || 0) + 1; toast(`🎒 ${f.name}을(를) 가방에 넣었어요`); } },
-        work: () => { if (S.energy < 15) return toast('너무 피곤해서 일할 수 없어요', 'bad'); closeSheet(); martGame(); },
-      });
-    },
-  });
-}
 function tabs(b) {
   b.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => {
     audio.click();
@@ -694,57 +721,33 @@ function tabs(b) {
     b.querySelectorAll('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== t.dataset.tab));
   }));
 }
-
-// 편의점 미니게임: 컨베이어 위 물건 스캔
-function martGame() {
-  const mg = $('mg');
-  mg.classList.remove('hidden');
-  mg.innerHTML = `<div class="mg-box"><div class="mg-top"><span>🛒 계산대 · 물건을 눌러 바코드 스캔!</span><span class="t" id="mgT">25</span></div>
-    <div class="belt" id="belt"><div class="scanner"></div></div>
-    <div class="mg-top" style="margin-top:10px"><span>스캔 <b id="mgOk">0</b> · 놓침 <b id="mgMiss" style="color:var(--bad)">0</b></span><span style="font-size:13px;color:var(--tx2)">왼쪽 빨간 선을 넘기 전에!</span></div></div>`;
-  const belt = $('belt');
-  const items = ['🥤', '🍙', '🍫', '🧃', '🍜', '🥛', '🍪', '🧴', '🍞', '🧻', '🍌', '🍺', '🥫', '🍬'];
-  let t = TEST ? 5 : 25, ok = 0, miss = 0, spawnT = 0, live = [], lastTs = performance.now(), running = true;
-  const W = belt.clientWidth;
-  function step(ts) {
-    if (!running) return;
-    const dt = Math.min(1, (ts - lastTs) / 1000); lastTs = ts;
-    t -= dt; spawnT -= dt;
-    $('mgT').textContent = Math.max(0, Math.ceil(t));
-    const speed = 150 + (25 - t) * 7;
-    if (spawnT <= 0 && t > 1) {
-      spawnT = 0.75 - (25 - t) * 0.012 + Math.random() * 0.25;
-      const el = document.createElement('div'); el.className = 'item'; el.textContent = items[Math.floor(Math.random() * items.length)];
-      el.style.top = (12 + Math.random() * 50) + 'px';
-      const o = { el, x: W + 10, done: false };
-      el.style.transform = `translateX(${o.x}px)`;
-      el.addEventListener('pointerdown', (e) => { e.preventDefault(); if (o.done) return; o.done = true; ok++; audio.beep(); el.classList.add('done'); $('mgOk').textContent = ok; setTimeout(() => el.remove(), 250); });
-      belt.appendChild(el); live.push(o);
-    }
-    for (const o of live) {
-      if (o.done) continue;
-      o.x -= speed * dt; o.el.style.transform = `translateX(${o.x}px)`;
-      if (o.x < -40) { o.done = true; miss++; o.el.remove(); $('mgMiss').textContent = miss; audio.bad(); }
-    }
-    live = live.filter(o => !o.done || o.el.isConnected);
-    if (t <= 0) { running = false; finish(); return; }
-    requestAnimationFrame(step);
+// 음식 정보 (편의점 상품 · 데운 음식(#hot) · 직접 만든 요리(이름@맛@추가재료))
+function foodInfo(id) {
+  if (id.includes('@')) {
+    const [d, q, ex] = id.split('@');
+    const b = DISHES[d], qq = (+q) / 100, extras = ex ? ex.split(',').filter(Boolean).length : 0;
+    return { name: b.name + (qq > 0.85 ? ' (최고)' : qq < 0.35 ? ' (탐)' : ''), icon: b.icon, hunger: Math.round(b.hunger * (0.6 + 0.4 * qq)) + extras * 8, mood: Math.round(b.mood * (0.3 + 0.9 * qq)) + extras * 2, energy: 0, homemade: true };
   }
-  requestAnimationFrame(step);
-  async function finish() {
-    mg.classList.add('hidden'); mg.innerHTML = '';
-    busy = true;
-    await fade(true);
-    ST.passTime(S, 180, 'work');
-    S.martShifts++;
-    await fade(false);
-    busy = false;
-    const acc = ok / Math.max(1, ok + miss);
-    const pay = WAGE_MART * 3 + ok * 250 - miss * 300;
-    earn(Math.max(WAGE_MART * 2, pay), `편의점 알바 3시간 (스캔 ${ok}개)`);
-    if (acc > 0.9) { S.mood = ST.clamp(S.mood + 4); toast('👏 점장님: "일 잘하네!"'); }
-    persist();
-  }
+  const hot = id.endsWith('#hot'), base = id.replace('#hot', '');
+  const p = PRODUCT[base] || DISHES[base] || FOODS.find(f => f.id === base) || { name: base, hunger: 5 };
+  const info = { ...p, icon: p.icon || foodIcon(base) };
+  if (!hot) return info;
+  return { ...info, needWater: false, name: p.needWater ? `${p.name} (다 익음)` : `따뜻한 ${p.name}`, hunger: (p.hunger || 0) + 5, mood: (p.mood || 0) + 4 };
+}
+function eatFood(id, { minutes = 10, moodBonus = 0 } = {}) {
+  const f = foodInfo(id);
+  if (!S.inventory.food[id]) return;
+  S.inventory.food[id]--; if (S.inventory.food[id] <= 0) delete S.inventory.food[id];
+  S.hunger = ST.clamp(S.hunger + (f.hunger || 0));
+  if (f.energy) S.energy = ST.clamp(S.energy + f.energy);
+  S.mood = ST.clamp(S.mood + (f.mood || 0) + moodBonus);
+  ST.passTime(S, minutes, 'idle');
+  S.ateOnce = true;
+  audio.play('eat');
+  toast(`😋 ${f.name} 냠냠 (배고픔 +${f.hunger || 0}${f.energy ? `, 에너지 ${f.energy > 0 ? '+' : ''}${f.energy}` : ''})`, 'good');
+  checkGoals();
+  updateHUD(true);
+  persist();
 }
 
 // ───────── 장소: 식당 ─────────
@@ -974,30 +977,65 @@ function gymSheet() {
 }
 
 // ───────── 집 (실내) ─────────
+// ───────── 실내 공통 ─────────
+function enterRoomCommon(r) {
+  if (inCar) exitCar();
+  scene.remove(human.root);
+  r.scene.add(human.root);
+  room = r;
+  human.root.visible = true;
+  human.setPose('stand');
+  setAct(null); setCarBtn(null);
+  $('mini').classList.add('hidden');
+  $('btnRun').classList.add('hidden');
+  player.speed = 0;
+}
+// 실내 → 도시 (UI만 정리, 위치는 호출한 쪽에서)
+function leaveRoom() {
+  if (room) room.scene.remove(human.root);
+  scene.add(human.root);
+  human.setPose('stand'); human.carry = false; human.work = false;
+  room = null;
+  mode = 'city';
+  $('mini').classList.remove('hidden');
+  $('btnRun').classList.remove('hidden');
+  $('editBtn')?.classList.add('hidden');
+  $('btnLight').classList.add('hidden');
+  interior.tvOn = false;
+  cam.kitchen = false;
+  if (S.player) S.player.inside = false;
+}
+function placeAtEntrance(e) {
+  player.pos.set(e.x, 0.18, e.z + (e.face === 0 ? 1.4 : -1.4));
+  player.heading = e.face;
+  cam.yaw = player.heading + Math.PI; cam.pitch = 0.3;
+  city.collide(player.pos, 0.35);
+  human.root.position.copy(player.pos);
+  updateCityCamera(10);
+}
+
 async function enterHome(silent) {
   busy = true;
   if (!silent) await fade(true);
-  if (inCar) exitCar();
+  if (mode === 'mart') leaveRoom();
   mode = 'home';
   interior.build(S.home, S.placed[S.home]);
   interior.refreshLamps();
-  scene.remove(human.root);
-  interior.scene.add(human.root);
-  human.root.visible = true;
+  if (interior.lightOn === undefined) interior.lightOn = true;
+  enterRoomCommon(interior);
   player.pos.set(interior.door.x, 0, interior.door.z - 0.6);
   player.heading = Math.PI;
   cam.yaw = 0.35; cam.pitch = 0.9; cam.tdist = 5;
   human.root.position.copy(player.pos);
-  updateHomeCamera(10);
-  setAct(null); setCarBtn(null);
-  $('mini').classList.add('hidden');
-  $('btnRun').classList.add('hidden');
+  updateRoomCamera(10);
   if (!$('editBtn')) {
     const eb = document.createElement('button'); eb.id = 'editBtn'; eb.className = 'pill'; eb.textContent = '🛠 꾸미기';
     eb.addEventListener('click', () => { audio.click(); startEdit(); });
     $('actions').appendChild(eb);
   }
   $('editBtn').classList.remove('hidden');
+  $('btnLight').classList.remove('hidden');
+  updateLightBtn();
   S.player = { ...(S.player || {}), inside: true };
   if (!silent) await fade(false);
   busy = false;
@@ -1006,31 +1044,58 @@ async function enterHome(silent) {
 async function exitHome() {
   busy = true;
   await fade(true);
-  mode = 'city';
-  interior.scene.remove(human.root);
-  scene.add(human.root);
-  human.setPose('stand');
-  const home = city.entrances.find(e => e.id === 'home');
-  player.pos.set(home.x, 0.18, home.z + (home.face === 0 ? 1.4 : -1.4));
-  player.heading = home.face;
-  cam.yaw = player.heading + Math.PI; cam.pitch = 0.3;
-  human.root.position.copy(player.pos);
-  updateCityCamera(10);
-  $('mini').classList.remove('hidden');
-  $('btnRun').classList.remove('hidden');
-  $('editBtn')?.classList.add('hidden');
-  interior.tvOn = false;
-  if (S.player) S.player.inside = false;
+  leaveRoom();
+  placeAtEntrance(city.entrances.find(e => e.id === 'home'));
   persist();
   await fade(false);
   busy = false;
 }
-function updateHomeWalking(dt) {
+function updateLightBtn() { $('btnLight').textContent = interior.lightOn ? '💡 불 끄기' : '🌑 불 켜기'; }
+$('btnLight').addEventListener('click', () => { interior.lightOn = !interior.lightOn; audio.play('light'); updateLightBtn(); });
+
+// ───────── 편의점 ─────────
+async function enterMart(e) {
+  busy = true;
+  await fade(true);
+  mode = 'mart';
+  martEntrance = e;
+  enterRoomCommon(mart);
+  player.pos.set(4.2, 0, 5.3);
+  player.heading = Math.PI;
+  cam.yaw = 0.35; cam.pitch = 0.95; cam.tdist = 5;
+  human.root.position.copy(player.pos);
+  martGame.onEnter();
+  updateRoomCamera(10);
+  audio.play('door');
+  await fade(false);
+  busy = false;
+  if (!S.martVisited) { S.martVisited = true; setTimeout(() => toast('🛒 매대 앞에 서면 물건을 담을 수 있어요 · 계산은 계산대 앞에서'), 600); }
+}
+function exitMart() {
+  martGame.tryExit(async () => {
+    busy = true;
+    await fade(true);
+    mart.clearNpcs();
+    leaveRoom();
+    placeAtEntrance(martEntrance);
+    audio.play('door');
+    persist();
+    await fade(false);
+    busy = false;
+  });
+}
+function updateMartInteract() {
+  const extra = martGame.extraAction(player.pos);
+  const a = extra || martGame.action(mart.zoneAt(player.pos));
+  if (a) setAct(a.label, a.fn, a.green); else setAct(null);
+}
+
+function updateRoomWalking(dt) {
   const i = readInput();
   applyLook(i);
   cam.pitch = THREE.MathUtils.clamp(cam.pitch, 0.45, 1.3);
   const { mx, mz, m } = moveVector(i);
-  const target = m > 0.12 ? 1.7 * Math.min(1, m * 1.15) : 0;
+  const target = m > 0.12 ? (player.run ? 2.6 : 1.7) * Math.min(1, m * 1.15) : 0;
   player.speed += (target - player.speed) * Math.min(1, dt * 8);
   if (m > 0.12) {
     const want = Math.atan2(mx, mz);
@@ -1039,28 +1104,35 @@ function updateHomeWalking(dt) {
   }
   player.pos.x += Math.sin(player.heading) * player.speed * dt;
   player.pos.z += Math.cos(player.heading) * player.speed * dt;
-  interior.collide(player.pos, 0.3);
+  if (room === mart) for (const c of mart.npcs) {
+    const dx = player.pos.x - c.pos.x, dz = player.pos.z - c.pos.z, d = Math.hypot(dx, dz);
+    if (d < 0.5 && d > 1e-4) { player.pos.x = c.pos.x + dx / d * 0.5; player.pos.z = c.pos.z + dz / d * 0.5; }
+  }
+  room.collide(player.pos, 0.3);
   player.pos.y = 0;
   human.root.position.copy(player.pos);
   human.root.rotation.y = player.heading;
   human.animate(dt, player.speed, false);
   if (player.speed > 0.3 && interior.tvOn) interior.tvOn = false;
 }
-function updateHomeCamera(dt) {
-  const W = interior.W, D = interior.D;
+function updateRoomCamera(dt) {
+  const r = room || interior;
+  const W = r.W, D = r.D;
   const base = Math.max(W, D);
-  let target, dist, pitch;
+  let target, dist, pitch, yaw = cam.yaw;
   if (editing) { target = new THREE.Vector3(0, 0, 0); dist = base * 1.25; pitch = 1.15; }
+  else if (cam.kitchen && r === interior) { target = new THREE.Vector3(interior.stove.x + 0.3, 1.0, interior.stove.z); dist = 2.6; pitch = 0.6; yaw = Math.PI / 2 - 0.55; }
   else { target = new THREE.Vector3(player.pos.x * 0.6, 1.0, player.pos.z * 0.6); dist = THREE.MathUtils.clamp(base * 0.95, 7, 17) + cam.tdist - 5; pitch = cam.pitch; }
-  if (camera.aspect < 1) dist *= 1 + (1 - camera.aspect) * 0.9;
+  if (camera.aspect < 1 && !cam.kitchen) dist *= 1 + (1 - camera.aspect) * 0.9;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
-  const want = new THREE.Vector3(target.x + Math.sin(cam.yaw) * cp * dist, target.y + sp * dist, target.z + Math.cos(cam.yaw) * cp * dist);
+  const want = new THREE.Vector3(target.x + Math.sin(yaw) * cp * dist, target.y + sp * dist, target.z + Math.cos(yaw) * cp * dist);
   camera.position.lerp(want, Math.min(1, dt * 6));
   camera.lookAt(target);
 }
 function updateHomeInteract() {
   const n = interior.nearest(player.pos);
   if (n === 'door') return setAct('🚪 밖으로 나가기', exitHome);
+  if (n === 'kitchen') return setAct('🍳 요리하기', () => cooking.menu());
   if (!n) { setAct(null); return; }
   const id = n.userData.item.id;
   const label = INTERACT[id];
@@ -1094,52 +1166,133 @@ async function useFurniture(mesh) {
   toast(a.msg, 'good');
   updateHUD(true);
 }
+
+// ───────── 잠 ─────────
+function nextAt(hour) {
+  const now = S.minutes, d = Math.floor(now / 1440);
+  let t = d * 1440 + hour * 60;
+  if (t <= now + 30) t += 1440;
+  return t;
+}
 function sleepSheet(bed) {
   const h = ST.hour(S);
-  const toSeven = ((7 - h) + 24) % 24 || 24;
-  openSheet({
-    icon: '🛏️', title: '잠자기', sub: `지금 ${ST.clock(S).text} · 에너지 ${Math.round(S.energy)}`,
-    html: row({ icon: '⏰', title: '오전 7시까지 자기', desc: `${toSeven.toFixed(1)}시간`, btn: '자기', action: 'sleep:' + (toSeven * 60) }) +
-      row({ icon: '😴', title: '8시간 푹 자기', desc: '에너지 가득', btn: '자기', action: 'sleep:480' }) +
-      row({ icon: '💤', title: '2시간 낮잠', desc: '잠깐 충전', btn: '자기', action: 'sleep:120' }),
-    bind: (b) => bindActs(b, { sleep: (m) => { closeSheet(); doSleep(bed, +m); } }),
+  const nightTime = h >= 21 || h < 5;
+  if (S.energy > 88 && !nightTime) {
+    openSheet({
+      icon: '🛏️', title: '아직 안 졸려요', sub: `에너지 ${Math.round(S.energy)}`,
+      html: `<p class="note">지금은 누워도 잠이 안 올 것 같아요. 침대에서 뒹굴거리며 쉬기만 할 수 있어요.</p><button class="btn wide gray" data-act="rest">30분 누워 있기</button>`,
+      bind: (b) => bindActs(b, { rest: async () => { closeSheet(); busy = true; await fade(true); ST.passTime(S, 30, 'rest'); await fade(false); busy = false; toast('😌 좀 쉬었어요'); } }),
+    });
+    return;
+  }
+  let lightOff = true;
+  const alarms = [6, 7, 8, 9];
+  const fmt = (t) => { const m = t % 1440; return `${Math.floor(m / 60) < 12 ? '오전' : '오후'} ${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')}`; };
+  const dur = (t) => { const m = t - S.minutes; return `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분`; };
+  const job = S.mart?.hired ? martGame.shiftStatus() : null;
+  const render = () => `<p class="note">지금 ${ST.clock(S).text} · 에너지 <b>${Math.round(S.energy)}</b> · 배고픔 <b>${Math.round(S.hunger)}</b>${S.hunger < 25 ? '<br><b style="color:var(--warn)">배가 고프면 자다가 깰 수 있어요</b>' : ''}${job && !job.canClockIn ? `<br>🧑‍💼 ${job.msg}` : ''}</p>
+      <div class="row"><div class="ic">${lightOff ? '🌑' : '💡'}</div><div class="info"><b>${lightOff ? '불 끄고 자기' : '불 켜고 자기'}</b><span>${lightOff ? '깊게 잘 수 있어요' : '잠이 얕아져요'}</span></div><button class="btn gray" data-act="light">바꾸기</button></div>` +
+    alarms.map(a => { const t = nextAt(a); return row({ icon: '⏰', title: `알람 ${fmt(t)}`, desc: dur(t) + ' 자요', btn: '자기', action: 'alarm:' + t }); }).join('') +
+    row({ icon: '😴', title: '알람 없이 푹 자기', desc: '에너지가 다 차면 저절로 깨요 (최대 11시간)', btn: '자기', action: 'free' }) +
+    row({ icon: '💤', title: '30분 낮잠', desc: '잠깐 눈 붙이기', btn: '자기', action: 'nap:30' }) +
+    row({ icon: '💤', title: '2시간 낮잠', desc: '오후에 충전', btn: '자기', action: 'nap:120' });
+  const open = () => openSheet({
+    icon: '🛏️', title: '잠자기', sub: '알람을 맞추고 자요',
+    html: render(),
+    bind: (b) => bindActs(b, {
+      light: () => { lightOff = !lightOff; open(); },
+      alarm: (t) => { closeSheet(); doSleep(bed, { until: +t, alarm: true, lightOff }); },
+      free: () => { closeSheet(); doSleep(bed, { until: S.minutes + 660, alarm: false, lightOff }); },
+      nap: (m) => { closeSheet(); doSleep(bed, { until: S.minutes + +m, alarm: true, lightOff, nap: true }); },
+    }),
   });
+  open();
 }
-async function doSleep(bed, minutes) {
+async function doSleep(bed, { until, alarm, lightOff, nap }) {
   busy = true;
   const it = bed.userData.item;
-  const quality = FURNITURE.find(f => f.id === it.id).sleep || 1;
+  const bedQ = FURNITURE.find(f => f.id === it.id).sleep || 1;
   await fade(true);
+  if (lightOff && interior.lightOn) { interior.lightOn = false; updateLightBtn(); }
   human.setPose('lie');
   human.root.position.set(bed.position.x, 0.42, bed.position.z);
   human.root.rotation.y = bed.rotation.y;
+  cam.yaw = bed.rotation.y + 0.6; cam.pitch = 0.75;
   await fade(false);
-  // 빨리 감기
-  const steps = 40;
-  for (let k = 0; k < steps; k++) {
-    ST.passTime(S, minutes / steps, 'sleep');
-    S.energy = ST.clamp(S.energy + (quality - 1) * 13 * (minutes / steps / 60));
+  audio.play('snore');
+  const mg = $('mg');
+  mg.classList.remove('hidden'); mg.classList.add('soft');
+  mg.innerHTML = `<div class="sleep"><div class="zz">💤</div><div class="sclock" id="sclock"></div><div class="pbar"><i id="sbar"></i></div><button class="btn gray" id="wakeBtn">일어나기</button></div>`;
+  let woke = false, reason = '';
+  $('wakeBtn').addEventListener('click', () => { woke = true; reason = 'self'; });
+  const start = S.minutes, total = until - start;
+  const startEnergy = S.energy;
+  while (!woke && S.minutes < until) {
+    const step = Math.min(10, until - S.minutes);
+    const h = ST.hour(S);
+    const nightSleep = h >= 22 || h < 7;
+    const mult = bedQ * (nightSleep ? 1.12 : 0.85) * (interior.lightOn ? 0.8 : 1) * (S.hunger < 15 ? 0.7 : 1) * (nap ? 0.9 : 1);
+    ST.passTime(S, step, 'sleep');
+    S.energy = ST.clamp(S.energy + 13 * (mult - 1) * (step / 60));
+    $('sclock').textContent = `${ST.day(S)}일차 ${ST.clock(S).text} · 에너지 ${Math.round(S.energy)}`;
+    $('sbar').style.width = Math.min(100, (S.minutes - start) / total * 100) + '%';
     updateHUD(true);
-    await wait(60);
+    if (!alarm && S.energy >= 100 && S.minutes - start > 180) { woke = true; reason = 'full'; }
+    if (S.hunger <= 3) { woke = true; reason = 'hungry'; }
+    await wait(TEST ? 5 : 45);
   }
+  mg.classList.add('hidden'); mg.classList.remove('soft'); mg.innerHTML = '';
+  const slept = (S.minutes - start) / 60;
+  if (alarm && reason === '') audio.play('alarm');
   await fade(true);
   human.setPose('stand');
   player.pos.set(bed.position.x + 1.1, 0, bed.position.z + 0.6);
   interior.collide(player.pos, 0.3);
   human.root.position.copy(player.pos);
+  cam.yaw = 0.35; cam.pitch = 0.9;
+  if (!nap) {
+    if (slept >= 6.5 && slept <= 9.5) S.mood = ST.clamp(S.mood + 8);
+    else if (slept < 5) S.mood = ST.clamp(S.mood - 6);
+  }
   await fade(false);
   busy = false;
-  bigMsg('☀️ 잘 잤다!', `${ST.day(S)}일차 ${ST.clock(S).text}`);
+  const title = reason === 'hungry' ? '😫 배고파서 깼어요' : reason === 'self' ? '🥱 일어났어요' : alarm ? '⏰ 따르릉! 일어날 시간' : '☀️ 푹 잤다!';
+  const sub = `${slept.toFixed(1)}시간 잤어요 · 에너지 ${Math.round(startEnergy)} → ${Math.round(S.energy)}${!nap && slept < 5 ? ' · 잠이 부족해요' : !nap && slept >= 6.5 && slept <= 9.5 ? ' · 개운해요' : ''}`;
+  bigMsg(title, sub, 3200);
   warned = {};
+  martGame.dailyCheck();
   persist();
 }
+
+// ───────── 냉장고 · 가방 ─────────
 function fridgeSheet(fromPhone) {
   const items = Object.entries(S.inventory.food).filter(([, n]) => n > 0);
+  const ings = Object.entries(S.inventory.ing).filter(([, n]) => n > 0);
   openSheet({
-    icon: fromPhone ? '🎒' : '🧊', title: fromPhone ? '가방' : '냉장고', sub: '편의점에서 "담기"로 산 음식',
-    html: items.length ? items.map(([id, n]) => { const f = FOODS.find(x => x.id === id); return row({ icon: foodIcon(id), title: `${f.name} ×${n}`, desc: `배고픔 +${f.hunger}${f.energy ? ` · 에너지 +${f.energy}` : ''}`, btn: '먹기', action: 'eat:' + id }); }).join('') : '<p class="note">비어 있어요. 편의점에서 음식을 "담기"로 사 두면 여기서 언제든 먹을 수 있어요.</p>',
-    bind: (b) => bindActs(b, { eat: (id) => { S.inventory.food[id]--; eat(FOODS.find(x => x.id === id)); fridgeSheet(fromPhone); } }),
+    icon: fromPhone ? '🎒' : '🧊', title: fromPhone ? '가방' : '냉장고', sub: '산 음식 · 만든 요리 · 요리 재료',
+    html: `<div class="tabs"><button class="on" data-tab="food">🍽 음식 ${items.length ? items.reduce((a, [, n]) => a + n, 0) : ''}</button><button data-tab="ing">🥚 재료 ${ings.length ? ings.reduce((a, [, n]) => a + n, 0) : ''}</button></div>
+      <div data-pane="food">${items.length ? items.map(([id, n]) => {
+        const f = foodInfo(id);
+        if (f.needWater) return row({ icon: f.icon, title: `${f.name} ×${n}`, desc: '뜨거운 물이 필요해요 (편의점 온수기 · 집 주방)', btn: '물 필요', btnClass: 'gray', disabled: true, action: 'x' });
+        return row({ icon: f.icon, title: `${f.name} ×${n}`, desc: `배고픔 +${f.hunger || 0}${f.energy ? ` · 에너지 ${f.energy > 0 ? '+' : ''}${f.energy}` : ''}${f.homemade ? ' · 직접 만든 요리' : ''}`, btn: '먹기', action: 'eat:' + id });
+      }).join('') : '<p class="note">비어 있어요. 편의점에서 사 오거나 주방에서 요리해 보세요.</p>'}</div>
+      <div data-pane="ing" class="hidden">${ings.length ? ings.map(([k, n]) => row({ icon: INGREDIENTS[k].icon, title: `${INGREDIENTS[k].name} ×${n}`, desc: '주방에서 요리할 때 써요' })).join('') : '<p class="note">재료가 없어요. 편의점 식재료·라면 코너에서 사 오세요.</p>'}</div>`,
+    bind: (b) => { tabs(b); bindActs(b, { eat: (id) => { closeSheet(); if (mode === 'home' && !fromPhone) eatAtHome(id); else eatFood(id); } }); },
   });
+}
+async function eatAtHome(id) {
+  busy = true;
+  const table = interior.items.find(m => ['table', 'desk'].includes(m.userData.item.id));
+  await fade(true);
+  if (table) { human.root.position.set(table.position.x, 0.02, table.position.z + 0.75); human.root.rotation.y = Math.PI + table.rotation.y; human.setPose('sit'); }
+  await fade(false);
+  await wait(TEST ? 200 : 1400);
+  eatFood(id, { minutes: 15, moodBonus: table ? 3 : 0 });
+  await fade(true);
+  human.setPose('stand');
+  human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
+  await fade(false);
+  busy = false;
 }
 
 // ───────── 꾸미기 모드 ─────────
@@ -1234,7 +1387,9 @@ function moveSel(p) {
 // ───────── 기절 ─────────
 async function faint() {
   busy = true;
+  if (martGame.onShift) await martGame.endShift(true);
   if (inCar) { pcar.speed = 0; exitCar(); }
+  if (mode === 'mart') { mart.clearNpcs(); leaveRoom(); }
   await fade(true);
   bigMsg('😵 기절했어요…', '구급차에 실려 갔어요. 병원비 50,000원', 3000);
   await wait(2600);
@@ -1264,7 +1419,8 @@ function openPhone(app) {
   if (app === 'map') return phoneMap();
   const apps = [
     ['map', '🗺️', '지도·택시', '#2a9d8f'], ['bank', '💳', '은행', '#264653'], ['me', '🧑', '내 정보', '#e76f51'], ['goals', '🏆', '인생 목표', '#f4a261'],
-    ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['settings', '⚙️', '설정', '#6c757d'],
+    ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['job', '🧑‍💼', '알바', '#1f8a4c'],
+    ['settings', '⚙️', '설정', '#6c757d'],
   ];
   phScreen.innerHTML = `<div class="ph-widget"><div style="font-size:13px;opacity:.8">${ST.day(S)}일차 · ${DAYNAMES[(ST.day(S) - 1) % 7]}</div><div class="big">${ST.clock(S).text}</div><div style="font-size:13px;opacity:.8">잔액 ${won(S.money)}</div></div>
     <div class="apps">${apps.map(([id, ic, name, col]) => `<button class="app" data-app="${id}"><i style="background:${col}">${ic}</i>${name}</button>`).join('')}</div>`;
@@ -1273,6 +1429,15 @@ function openPhone(app) {
 function phoneApp(id) {
   if (id === 'map') return phoneMap();
   if (id === 'bag') { closePhone(); return fridgeSheet(true); }
+  if (id === 'job') {
+    const M = S.mart;
+    if (!M || !M.hired) { phScreen.innerHTML = `<div class="ph-title">🧑‍💼 알바</div><p class="note" style="color:#ddd">아직 알바를 안 하고 있어요. 24 마트 계산대에서 "알바 문의하기"를 눌러 보세요.</p>`; return; }
+    const st = martGame.shiftStatus(), sh = SHIFTS[M.slot];
+    const avg = M.ratings.length ? M.ratings.reduce((a, b) => a + b, 0) / M.ratings.length : 0;
+    phScreen.innerHTML = `<div class="ph-title">🧑‍💼 24 마트 알바</div><div class="ph-widget"><b>${sh.name} ${String(sh.start % 24).padStart(2, '0')}:00 ~ ${String(sh.end % 24).padStart(2, '0')}:00</b> · 평일<div style="font-size:13px;opacity:.85;margin-top:6px">${martGame.onShift ? '지금 근무 중이에요' : st.canClockIn ? '지금 출근할 수 있어요! 계산대 안쪽으로 가세요' : st.msg}</div></div>
+      <div class="grid2"><div class="stat"><span>시급</span><b>${won(martGame.wage())}</b></div><div class="stat"><span>평균 평점</span><b>${avg ? stars(avg) : '-'}</b></div><div class="stat"><span>이번 주</span><b>${M.weekHours.toFixed(1)}시간</b></div><div class="stat"><span>경고</span><b>${M.warnings}/3</b></div></div>`;
+    return;
+  }
   if (id === 'bank') {
     phScreen.innerHTML = `<div class="ph-title">💳 한빛은행</div><div class="ph-widget"><div style="font-size:13px;opacity:.8">보통예금 잔액</div><div class="big">${won(S.money)}</div></div>
       <div class="grid2"><div class="stat"><span>지금까지 번 돈</span><b>${won(S.totalEarned)}</b></div><div class="stat"><span>완료한 배달</span><b>${S.deliveries}건</b></div><div class="stat"><span>편의점 알바</span><b>${S.martShifts}회</b></div><div class="stat"><span>보유 차량</span><b>${S.cars.length}대</b></div></div>`;
@@ -1347,14 +1512,16 @@ function phoneMap() {
 }
 async function taxi(e) {
   if (inCar) { toast('운전 중에는 택시를 부를 수 없어요', 'bad'); return; }
+  if (martGame.onShift) { toast('근무 중이에요! 퇴근하고 가요', 'bad'); return; }
+  if (mode === 'mart' && martGame.basketCount()) { toast('계산 안 한 물건이 있어요', 'bad'); return; }
   const p = player.pos;
-  const d = mode === 'home' ? Math.hypot(e.x - city.entrances.find(x => x.id === 'home').x, e.z - city.entrances.find(x => x.id === 'home').z) : Math.hypot(e.x - p.x, e.z - p.z);
+  const d = mode !== 'city' ? Math.hypot(e.x - city.entrances.find(x => x.id === 'home').x, e.z - city.entrances.find(x => x.id === 'home').z) : Math.hypot(e.x - p.x, e.z - p.z);
   const fare = Math.round((4800 + d * 14) / 100) * 100;
   if (!pay(fare)) return;
   closePhone();
   busy = true;
   await fade(true);
-  if (mode === 'home') { mode = 'city'; interior.scene.remove(human.root); scene.add(human.root); human.setPose('stand'); $('mini').classList.remove('hidden'); $('btnRun').classList.remove('hidden'); $('editBtn')?.classList.add('hidden'); if (S.player) S.player.inside = false; }
+  if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveRoom(); }
   ST.passTime(S, 5 + d / 60, 'idle');
   player.pos.set(e.x, 0.18, e.z + (e.face === 0 ? 1.6 : -1.6));
   player.heading = e.face + Math.PI;
@@ -1396,4 +1563,4 @@ resize();
 boot().catch(err => { $('loadTxt').textContent = '오류: ' + err.message; console.error(err); });
 
 // 디버그/테스트용
-window.__game = { renderer, scene, camera, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+window.__game = { renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => enterMart(city.entrances.find(e => e.id === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

@@ -101,6 +101,8 @@ export function createHuman(o = {}) {
       arms[1].shoulder.rotation.x = target(arms[1].shoulder.rotation.x, sw * 0.8);
       arms[0].elbow.rotation.x = target(arms[0].elbow.rotation.x, -(run ? 1.4 : 0.25) * (moving ? 1 : 0.4));
       arms[1].elbow.rotation.x = target(arms[1].elbow.rotation.x, -(run ? 1.4 : 0.25) * (moving ? 1 : 0.4));
+      if (api.carry) for (const a of arms) { a.shoulder.rotation.x = -1.05; a.elbow.rotation.x = -0.55; }
+      if (api.work) { arms[1].shoulder.rotation.x = -0.9 + Math.sin(performance.now() / 120) * 0.25; arms[1].elbow.rotation.x = -0.8; arms[0].shoulder.rotation.x = -0.7; arms[0].elbow.rotation.x = -0.7; }
       const t = performance.now() / 1000;
       body.position.y = moving ? Math.abs(Math.cos(phase)) * (run ? 0.07 : 0.035) - (run ? 0.04 : 0.01) : Math.sin(t * 2) * 0.004;
       body.rotation.x = target(body.rotation.x, run && moving ? 0.18 : 0.02);

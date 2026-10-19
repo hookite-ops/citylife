@@ -14,7 +14,7 @@ export function newState() {
     officeRank: 0, officeExp: 0, officeHired: false, lastWorkDay: -1, shiftsToday: 0,
     studyExp: 0,
     martShifts: 0, deliveries: 0,
-    inventory: { food: {}, furniture: {} },
+    inventory: { food: {}, furniture: {}, ing: {} },
     homes: ['oneroom'], home: 'oneroom',
     placed: {
       oneroom: [

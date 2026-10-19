@@ -179,11 +179,33 @@ export class Interior {
     trim.setColor(0xb0b4b8); trim.cbox(kx + 0.02, 0.93, kz0 + 0.6, 0.4, 0.02, 0.5);
     trim.setColor(0x111111); trim.cbox(kx + 0.02, 0.945, kz0 + 1.75, 0.45, 0.01, 0.55);
     trim.setColor(0xf2f0ec); trim.cbox(-W / 2 + 0.18, 1.85, kz0 + 1.2, 0.35, 0.7, 2.4);
+    // 타일 벽 (싱크대 뒤)
+    trim.setColor(0xdfe6e8); trim.cbox(-W / 2 + 0.015, 1.2, kz0 + 1.2, 0.02, 0.56, 2.4);
+    // 수전
+    trim.setColor(0xc8ccd0); trim.cbox(kx - 0.22, 1.1, kz0 + 0.6, 0.04, 0.32, 0.04); trim.cbox(kx - 0.12, 1.25, kz0 + 0.6, 0.24, 0.03, 0.03);
+    // 가스레인지 화구 2개
+    trim.setColor(0x6a6e72);
+    for (const dz of [1.6, 1.92]) trim.addGeo(new THREE.TorusGeometry(0.08, 0.012, 6, 16).rotateX(Math.PI / 2).translate(kx + 0.02, 0.955, kz0 + dz));
+    trim.setColor(0x8a8e92); trim.cbox(kx + 0.27, 0.93, kz0 + 1.75, 0.04, 0.06, 0.4);
+    // 전자레인지
+    trim.setColor(0xf2f2f0); trim.cbox(kx + 0.02, 1.1, kz0 + 1.12, 0.36, 0.3, 0.46);
+    trim.setColor(0x15171a); trim.cbox(kx + 0.205, 1.1, kz0 + 1.07, 0.01, 0.22, 0.3);
+    trim.setColor(0x4aa0e0); trim.cbox(kx + 0.205, 1.18, kz0 + 1.28, 0.01, 0.05, 0.06);
+    // 전기포트
+    trim.setColor(0xe8e8e8); trim.addGeo(new THREE.CylinderGeometry(0.075, 0.09, 0.22, 12).translate(kx + 0.02, 1.05, kz0 + 2.22));
+    trim.setColor(0x222222); trim.addGeo(new THREE.CylinderGeometry(0.1, 0.1, 0.02, 12).translate(kx + 0.02, 0.95, kz0 + 2.22));
+    // 벽 스위치 (문 옆)
+    trim.setColor(0xf6f6f6); trim.cbox(W / 2 - 0.35, 1.2, D / 2 - 0.02, 0.09, 0.13, 0.02);
     // 문
     trim.setColor(0x6a4a30); trim.cbox(W / 2 - 1.1, 1.05, D / 2 - 0.02, 0.95, 2.1, 0.05);
     trim.setColor(0xc0c0c0); trim.cbox(W / 2 - 0.75, 1.0, D / 2 - 0.06, 0.12, 0.03, 0.03);
     const tm = new THREE.Mesh(trim.build(), fMat); tm.receiveShadow = true; tm.castShadow = true; this.root.add(tm);
     this.kitchenBox = { x0: kx - 0.32, x1: kx + 0.32, z0: kz0, z1: kz0 + 2.4 };
+    this.stove = { x: kx + 0.02, y: 0.96, z: kz0 + 1.6 };
+    this.micro = { x: kx + 0.02, y: 1.1, z: kz0 + 1.12 };
+    this.kettle = { x: kx + 0.02, y: 1.18, z: kz0 + 2.22 };
+    this.cookSpot = { x: kx + 0.95, z: kz0 + 1.6 };
+    this.buildCookware();
     this.door = { x: W / 2 - 1.1, z: D / 2 - 0.6 };
     // 창밖 풍경
     const view = this.makeView(homeId, W);
@@ -305,6 +327,85 @@ export class Interior {
     pos.z = Math.max(-this.D / 2 + r, Math.min(this.D / 2 - r, pos.z));
   }
 
+  buildCookware() {
+    const g = new THREE.Group(); this.root.add(g);
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.85, roughness: 0.3 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1c1d20, metalness: 0.4, roughness: 0.5 });
+    const st = this.stove;
+    const pot = new THREE.Group();
+    const pw = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.12, 0.14, 20, 1, true), metal); pw.position.y = 0.07;
+    const pb = new THREE.Mesh(new THREE.CircleGeometry(0.12, 20).rotateX(-Math.PI / 2), metal); pb.position.y = 0.005;
+    const h1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.015, 0.02), dark); h1.position.set(0.16, 0.12, 0);
+    const h2 = h1.clone(); h2.position.x = -0.16;
+    pot.add(pw, pb, h1, h2);
+    const pan = new THREE.Group();
+    const pnb = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.12, 0.04, 20), dark); pnb.position.y = 0.02;
+    const pnh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.025, 0.24), dark); pnh.position.set(0.0, 0.04, 0.24);
+    pan.add(pnb, pnh);
+    const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.4, side: THREE.DoubleSide }));
+    bowl.rotation.x = Math.PI; bowl.position.y = 0.1;
+    const bowlG = new THREE.Group(); bowlG.add(bowl);
+    for (const o of [pot, pan]) o.position.set(st.x, st.y, st.z);
+    bowlG.position.set(st.x, st.y - 0.01, st.z + 0.55);
+    this.water = new THREE.Mesh(new THREE.CircleGeometry(0.118, 20).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8ab8d0, transparent: true, opacity: 0.7, roughness: 0.05 }));
+    pot.add(this.water);
+    this.foodDisc = new THREE.Mesh(new THREE.CircleGeometry(0.11, 20).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xe8c060, roughness: 0.8 }));
+    this.foodDisc.visible = false;
+    this.flame = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 20).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3a7aff, transparent: true, opacity: 0.9 }));
+    this.flame.position.set(st.x, st.y + 0.01, st.z);
+    this.flameLight = new THREE.PointLight(0x5a8aff, 0, 1.5);
+    this.flameLight.position.set(st.x + 0.2, st.y + 0.2, st.z);
+    g.add(pot, pan, bowlG, this.flame, this.flameLight, this.foodDisc);
+    this.cookware = { pot, pan, bowl: bowlG };
+    this.cookReset();
+    this.cookSteam = [];
+  }
+  cookReset() {
+    for (const k in this.cookware) this.cookware[k].visible = false;
+    this.flame.visible = false; this.flameLight.intensity = 0;
+    this.water.visible = false; this.foodDisc.visible = false;
+    this.boil = 0;
+  }
+  cookShow(tool) {
+    this.cookReset();
+    if (this.cookware[tool]) this.cookware[tool].visible = true;
+    this.tool = tool;
+  }
+  cookFire(on) { this.flame.visible = on; this.flameLight.intensity = on ? 1.2 : 0; }
+  cookWater(level) {
+    const pot = this.cookware.pot;
+    this.water.visible = level > 0.02;
+    this.water.position.y = 0.01 + Math.min(1, level) * 0.12;
+  }
+  cookFood(color, y) {
+    const base = this.cookware[this.tool];
+    const st = this.stove;
+    this.foodDisc.material.color.set(color);
+    this.foodDisc.visible = true;
+    const dy = this.tool === 'pot' ? this.water.position.y + 0.004 : this.tool === 'pan' ? 0.045 : 0.06;
+    this.foodDisc.position.set(base.position.x, base.position.y + dy, base.position.z);
+    this.foodDisc.scale.setScalar(this.tool === 'bowl' ? 0.8 : 1);
+  }
+  // 김 / 끓는 연출
+  steamTick(dt, rate, pos) {
+    const p = pos || { x: this.stove.x, y: this.stove.y + 0.18, z: this.stove.z };
+    if (Math.random() < rate * dt) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }));
+      s.position.set(p.x + (Math.random() - 0.5) * 0.12, p.y, p.z + (Math.random() - 0.5) * 0.12);
+      s.scale.setScalar(0.06); s.userData.life = 0;
+      this.root.add(s); this.cookSteam.push(s);
+    }
+    for (const s of [...this.cookSteam]) {
+      s.userData.life += dt;
+      const l = s.userData.life;
+      s.position.y += dt * 0.4; s.position.x += Math.sin(l * 4) * dt * 0.04;
+      s.scale.setScalar(0.06 + l * 0.2);
+      s.material.opacity = Math.max(0, 0.45 - l * 0.32);
+      if (l > 1.4) { this.root.remove(s); this.cookSteam.splice(this.cookSteam.indexOf(s), 1); }
+    }
+    if (this.flame.visible) this.flame.material.opacity = 0.75 + Math.random() * 0.25;
+  }
+
   nearest(pos) {
     let best = null, bd = 1.5;
     for (const m of this.items) {
@@ -316,6 +417,9 @@ export class Interior {
       if (d < bd) { bd = d; best = m; }
     }
     if (Math.hypot(pos.x - this.door.x, pos.z - this.door.z) < 1.1 && (!best || bd > 0.5)) return 'door';
+    const k = this.kitchenBox;
+    const kd = Math.hypot(pos.x - Math.max(k.x0, Math.min(pos.x, k.x1)), pos.z - Math.max(k.z0, Math.min(pos.z, k.z1)));
+    if (kd < 0.9 && (!best || kd < bd)) return 'kitchen';
     return best;
   }
 
@@ -323,9 +427,9 @@ export class Interior {
     this.viewSkyMat.color.copy(skyHorizon).lerp(skyTop, 0.4);
     this.viewMat.emissiveIntensity = night * 1.4;
     this.viewMat.color.setScalar(1 - night * 0.8);
-    this.ceil.intensity = 0.4 + night * 9;
+    this.ceil.intensity = this.lightOn === false ? 0 : 0.4 + night * 9;
     this.sunL.intensity = (1 - night) * 2.2 + 0.05;
-    this.hemi.intensity = 0.35 + (1 - night) * 0.5;
+    this.hemi.intensity = (this.lightOn === false ? 0.08 : 0.35) + (1 - night) * 0.5;
     screenMat.emissiveIntensity = this.tvOn ? 1.2 : 0;
     // 카메라 쪽 벽은 숨김 (인형의 집 시점)
     if (camera) {
