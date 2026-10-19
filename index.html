@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>도시생활 · CITY LIFE</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="tl">
+    <div class="card clock"><div id="clk">오전 7:30</div><div id="day">1일차 · 월요일</div></div>
+    <div class="card money"><span class="won">₩</span><span id="money">0</span></div>
+  </div>
+  <div id="needs" class="card">
+    <div class="need" id="nHunger"><i>🍚</i><div class="bar"><b></b></div></div>
+    <div class="need" id="nEnergy"><i>⚡</i><div class="bar"><b></b></div></div>
+    <div class="need" id="nMood"><i>🙂</i><div class="bar"><b></b></div></div>
+  </div>
+  <div id="tr">
+    <canvas id="mini" width="220" height="220"></canvas>
+    <button id="phoneBtn" class="round" aria-label="휴대폰">📱</button>
+  </div>
+  <div id="objective" class="card"></div>
+  <div id="toasts"></div>
+  <div id="speedo" class="hidden"><b id="kmh">0</b><span>km/h</span></div>
+
+  <div id="joy"><div id="knob"></div></div>
+  <div id="joyHint">왼쪽을 눌러 이동</div>
+
+  <div id="actions">
+    <button id="btnAct" class="act hidden"></button>
+    <button id="btnCar" class="pill hidden">🚗 타기</button>
+    <button id="btnRun" class="pill">🏃 달리기</button>
+    <button id="btnHorn" class="pill hidden">📯 경적</button>
+  </div>
+  <div id="pedals" class="hidden">
+    <button id="btnGas">▲<small>엑셀</small></button>
+    <button id="btnBrake">▼<small>브레이크</small></button>
+  </div>
+  <div id="editBar" class="hidden"></div>
+</div>
+
+<div id="sheet" class="hidden"><div class="sheet-in"><div class="sheet-head"><div class="sh-icon"></div><div class="sh-titles"><h2></h2><p></p></div><button class="x" aria-label="닫기">✕</button></div><div class="sheet-body"></div></div></div>
+
+<div id="phone" class="hidden">
+  <div class="ph-frame">
+    <div class="ph-status"><span id="phClock">7:30</span><span>●●●● 5G 🔋</span></div>
+    <div class="ph-screen"></div>
+    <div class="ph-bar"><button id="phHome">홈</button><button id="phClose">닫기 ✕</button></div>
+  </div>
+</div>
+
+<div id="mg" class="hidden"></div>
+<div id="fade"></div>
+<div id="bigmsg"></div>
+
+<div id="title">
+  <div class="t-bg"></div>
+  <div class="t-in">
+    <div class="t-logo">도시생활</div>
+    <div class="t-sub">CITY LIFE · 진짜 같은 도시에서 살아보기</div>
+    <div id="loadTxt">도시를 짓는 중…</div>
+    <div class="t-btns hidden" id="tBtns">
+      <button id="bContinue" class="primary hidden">이어하기</button>
+      <button id="bNew" class="primary">새로 시작</button>
+      <div class="q-row"><span>그래픽</span><button data-q="low">절약</button><button data-q="mid">보통</button><button data-q="high">고화질</button></div>
+    </div>
+    <div class="t-foot">이동: 왼쪽 화면 드래그 · 시점: 오른쪽 화면 드래그 · 두 손가락: 확대/축소</div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
