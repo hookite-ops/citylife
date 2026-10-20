@@ -69,7 +69,10 @@ let editing = false;
 let busy = false;       // 연출 중 (입력 막기)
 let elapsed = 0;
 
-const player = { pos: new THREE.Vector3(), heading: 0, speed: 0, run: false };
+const player = { pos: new THREE.Vector3(), heading: 0, speed: 0, run: false, vy: 0, ground: true };
+let jumpHeld = false;
+const fpPos = new THREE.Vector3(), fpLook = new THREE.Vector3();
+const roomLight = new THREE.PointLight(0xfff2e0, 0, 0, 0);
 const cam = { yaw: 0.6, pitch: 0.32, dist: 5, tdist: 5, carDist: 9 };
 const input = { gas: false, brake: false };
 let beacon, beaconRing;
@@ -124,7 +127,7 @@ async function boot() {
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
   // 타이틀 배경용 카메라 위치
-  scene.add(roomAmb);
+  scene.add(roomAmb, roomLight);
   setupHome();
   const home = homeEntrance();
   player.pos.set(home.x, 0.18, home.z + 2);
@@ -303,7 +306,7 @@ function loop(now) {
     // 바깥에서도 가까운 실내 문은 열리고 닫힘
     if (homeSite && homeSite.kind !== 'tower') { const [lx, lz] = homeSite.toLocal(player.pos.x, player.pos.z); if (Math.abs(lx) < 12 && Math.abs(lz) < 12) interior.updateDoor?.(dt, { x: lx, z: lz }); }
     if (martSite) { const [lx, lz] = martSite.toLocal(player.pos.x, player.pos.z); if (Math.abs(lx) < 12 && Math.abs(lz) < 9) mart.updateDoor(dt, { x: lx, z: lz }); }
-    roomAmb.intensity = 0;
+    roomAmb.intensity = 0; roomLight.intensity = 0;
     audio.ambient(sky.night > 0.5, false);
     audio.engine(inCar && !paused, pcar ? pcar.speed : 0, inCar ? lastThrottle : 0, pcar ? pcar.spec.maxSpeed : 30);
     miniT -= dt; if (miniT <= 0) { miniT = 0.1; drawMinimap(); }
@@ -317,7 +320,8 @@ function loop(now) {
     traffic.update(paused ? 0 : dt, pwv, null, sky.night, camera.position);
     if (!paused) peds.update(dt, pwv, camera.position);
     const lightOn = mode !== 'home' || interior.lightOn !== false;
-    roomAmb.intensity = lightOn ? 0.55 + sky.night * 0.9 : 0.12;
+    roomAmb.intensity = lightOn ? 0.45 + sky.night * 0.5 : 0.1;
+    roomLight.intensity = lightOn ? 1.1 + sky.night * 0.6 : 0;
     if (mode === 'home') {
       if (!paused && !editing) updateRoomWalking(dt);
       updateRoomCamera(dt);
@@ -400,11 +404,31 @@ function updateWalking(dt) {
   traffic.collideWalker(player.pos);
   peds.collide(player.pos);
   if (pcar) collideWithParkedCar(player.pos);
-  const gy = city.groundY(player.pos.x, player.pos.z);
-  player.pos.y += (gy - player.pos.y) * Math.min(1, dt * 14);
+  verticalMove(dt, city.groundY(player.pos.x, player.pos.z), i);
+  if (firstPerson()) player.heading = cam.yaw + Math.PI;
   human.root.position.copy(player.pos);
   human.root.rotation.y = player.heading;
-  human.animate(dt, player.speed, run);
+  human.animate(dt, player.speed, run, !player.ground);
+}
+// 점프 · 중력 (로블록스처럼 누르고 있으면 착지할 때마다 다시 점프)
+function verticalMove(dt, gy, i) {
+  const want = jumpHeld || (i && i.handbrake);
+  if (want && player.ground && !busy) { player.vy = 6.4; player.ground = false; audio.play?.('jump'); }
+  if (!player.ground || player.pos.y > gy + 0.25) {
+    player.ground = false;
+    player.vy -= 19.6 * dt;
+    player.pos.y += player.vy * dt;
+    if (player.pos.y <= gy) { player.pos.y = gy; player.vy = 0; player.ground = true; }
+  } else {
+    player.pos.y += (gy - player.pos.y) * Math.min(1, dt * 14);
+    player.vy = 0;
+  }
+}
+// 1인칭: 실내에서는 항상, 밖에서는 끝까지 확대했을 때
+function firstPerson() {
+  if (editing || cam.kitchen) return false;
+  if (room) return true;
+  return !inCar && cam.tdist < 0.9;
 }
 function collideWithParkedCar(pos) {
   const c = pcar;
@@ -420,10 +444,17 @@ function collideWithParkedCar(pos) {
 }
 function applyLook(i) {
   cam.yaw -= i.dx * 0.0065;
-  cam.pitch = THREE.MathUtils.clamp(cam.pitch + i.dy * 0.0045, -0.05, 1.25);
+  const fp = firstPerson();
+  cam.pitch = THREE.MathUtils.clamp(cam.pitch + i.dy * 0.0045, fp ? -1.3 : -0.05, fp ? 1.3 : 1.25);
   if (i.zoom) {
     if (inCar) cam.carDist = THREE.MathUtils.clamp(cam.carDist + i.zoom * 0.8, 5, 18);
-    else cam.tdist = THREE.MathUtils.clamp(cam.tdist + i.zoom * 0.6, 2.2, 14);
+    else if (!room) {
+      // 로블록스처럼 끝까지 당기면 1인칭
+      const was = cam.tdist;
+      cam.tdist = THREE.MathUtils.clamp(cam.tdist + i.zoom * 0.6, 0.5, 14);
+      if (was >= 0.9 && cam.tdist < 2.2 && i.zoom < 0) { cam.tdist = 0.5; cam.pitch = Math.min(cam.pitch, 0.3); }
+      else if (was < 0.9 && i.zoom > 0) cam.tdist = 2.4;
+    }
   }
 }
 
@@ -492,6 +523,8 @@ function updateCityCamera(dt) {
       cam.pitch += (0.2 - cam.pitch) * Math.min(1, dt * 1.5);
     }
   } else {
+    if (firstPerson()) { cam.dist = 0.5; fpCamera(); human.root.visible = false; return; }
+    human.root.visible = true;
     target = tmpV.set(player.pos.x, player.pos.y + 1.55, player.pos.z);
     cam.dist += (cam.tdist - cam.dist) * Math.min(1, dt * 6);
     dist = cam.dist;
@@ -506,10 +539,25 @@ function updateCityCamera(dt) {
   }
   // 가로등·나무 기둥에 카메라가 붙지 않게
   while (d > 1.3 && target.y + dy * d < 9 && city.nearPole(target.x + dx * d, target.z + dz * d, 0.75)) d -= 0.25;
+  // 나뭇잎 속으로 들어가지 않게
+  while (d > 1.3 && city.inCanopy(target.x + dx * d, target.y + dy * d, target.z + dz * d)) d -= 0.3;
   camera.position.set(target.x + dx * d, Math.max(0.4, target.y + dy * d), target.z + dz * d);
   camera.lookAt(target);
 }
 function insideBuilding(x, y, z) { return city.insideBuilding(x, y, z); }
+// 1인칭 카메라: 머리 위치에서 바라보는 방향으로 (실내면 건물 기준 방향을 월드로 돌림)
+function fpCamera() {
+  human.root.updateMatrixWorld(true);
+  human.headPivot.getWorldPosition(fpPos);
+  fpPos.y += 0.14;
+  const yaw = cam.yaw + (site ? site.rot : 0);
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const fx = -Math.sin(yaw) * cp, fz = -Math.cos(yaw) * cp;
+  fpPos.x += fx * 0.12; fpPos.z += fz * 0.12;
+  camera.position.copy(fpPos);
+  fpLook.set(fpPos.x + fx, fpPos.y - sp, fpPos.z + fz);
+  camera.lookAt(fpLook);
+}
 
 // ───────── 목적지/배달 ─────────
 function updateTargets(dt) {
@@ -568,6 +616,12 @@ function updateCityInteract() {
 }
 $('btnAct').addEventListener('click', () => { if (actHandler && !busy) { audio.click(); actHandler(); } });
 $('btnCar').addEventListener('click', () => { if (carHandler && !busy) { audio.click(); carHandler(); } });
+{
+  const jb = $('btnJump');
+  const dn = (e) => { e.preventDefault(); jumpHeld = true; jb.classList.add('on'); };
+  const up = () => { jumpHeld = false; jb.classList.remove('on'); };
+  jb.addEventListener('pointerdown', dn); jb.addEventListener('pointerup', up); jb.addEventListener('pointercancel', up); jb.addEventListener('pointerleave', up);
+}
 $('btnRun').addEventListener('click', () => { player.run = !player.run; $('btnRun').classList.toggle('on', player.run); audio.click(); });
 $('btnHorn').addEventListener('pointerdown', () => audio.horn());
 for (const [id, key] of [['btnGas', 'gas'], ['btnBrake', 'brake']]) {
@@ -1090,6 +1144,9 @@ function enterSite(s, kind, r, lx, lz) {
   player.pos.set(lx, 0, lz);
   player.heading -= s.rot; cam.yaw -= s.rot;
   player.speed = Math.min(player.speed, 1.7);
+  player.vy = 0; player.ground = true;
+  cam.pitch = 0.08;
+  camera.near = 0.06; camera.far = 1800; camera.updateProjectionMatrix();
   s.anchor.add(human.root);
   human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
   human.setPose('stand');
@@ -1131,6 +1188,9 @@ function leaveSite() {
   human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
   s.inside = false;
   site = null;
+  camera.near = 0.25; camera.far = 5000; camera.updateProjectionMatrix();
+  human.root.visible = true;
+  cam.dist = 0.6; cam.pitch = 0.25;
   leaveRoom();
   city.updateLOD(camera.position, 0);
 }
@@ -1146,7 +1206,7 @@ function leaveRoom() {
   $('btnLight').classList.add('hidden');
   interior.tvOn = false;
   cam.kitchen = false;
-  cam.pitch = Math.min(cam.pitch, 0.5);
+  cam.pitch = THREE.MathUtils.clamp(cam.pitch, 0, 0.5);
   if (S.player) S.player.inside = false;
 }
 // 문으로 걸어서 나가기
@@ -1175,7 +1235,7 @@ function walkInto(s) {
   if (s.kind === 'school' && s !== schoolSite) { school.build(s.school); s.anchor.add(school.root); schoolSite = s; }
   const r = roomOf(s); if (!r) return;
   const dx = s.kind === 'mart' ? 4.2 : s.kind === 'school' ? 0 : interior.door.x;
-  player.heading = Math.PI + s.rot; cam.yaw = 0.3 + s.rot; cam.pitch = 0.9; cam.tdist = 5;
+  player.heading = Math.PI + s.rot; cam.yaw = s.rot;
   enterSite(s, r[0], r[1], dx, s.D / 2 - 0.8);
   updateRoomCamera(10);
 }
@@ -1189,7 +1249,7 @@ async function enterHome(silent) {
   if (!homeSite || homeSite.homeId !== S.home) setupHome();
   enterSite(homeSite, 'home', interior, interior.door.x, interior.door.z - 0.6);
   player.heading = Math.PI;
-  cam.yaw = 0.35; cam.pitch = 0.9; cam.tdist = 5;
+  cam.yaw = 0; cam.pitch = 0.08;
   human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
   updateRoomCamera(10);
   if (!silent) await fade(false);
@@ -1256,30 +1316,44 @@ function updateMartInteract() {
 function updateRoomWalking(dt) {
   const i = readInput();
   applyLook(i);
-  cam.pitch = THREE.MathUtils.clamp(cam.pitch, 0.45, 1.3);
   const { mx, mz, m } = moveVector(i);
-  const target = m > 0.12 ? (player.run ? 2.6 : 1.7) * Math.min(1, m * 1.15) : 0;
+  const target = m > 0.12 ? (player.run || i.run ? 3.2 : 1.9) * Math.min(1, m * 1.15) : 0;
   player.speed += (target - player.speed) * Math.min(1, dt * 8);
-  if (m > 0.12) {
+  if (firstPerson()) player.heading = cam.yaw + Math.PI;
+  else if (m > 0.12) {
     const want = Math.atan2(mx, mz);
     let dh = want - player.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
     player.heading += dh * Math.min(1, dt * 12);
   }
-  player.pos.x += Math.sin(player.heading) * player.speed * dt;
-  player.pos.z += Math.cos(player.heading) * player.speed * dt;
+  // 1인칭에서는 바라보는 방향 기준으로 이동
+  const mvx = m > 0.12 ? mx / Math.max(1e-4, Math.hypot(mx, mz)) : 0, mvz = m > 0.12 ? mz / Math.max(1e-4, Math.hypot(mx, mz)) : 0;
+  player.pos.x += mvx * player.speed * dt;
+  player.pos.z += mvz * player.speed * dt;
   if (room === mart) for (const c of mart.npcs) {
     const dx = player.pos.x - c.pos.x, dz = player.pos.z - c.pos.z, d = Math.hypot(dx, dz);
     if (d < 0.5 && d > 1e-4) { player.pos.x = c.pos.x + dx / d * 0.5; player.pos.z = c.pos.z + dz / d * 0.5; }
   }
   room.collide(player.pos, 0.3);
-  player.pos.y = 0;
+  verticalMove(dt, 0, i);
   human.root.position.copy(player.pos);
   human.root.rotation.y = player.heading;
-  human.animate(dt, player.speed, false);
+  human.animate(dt, player.speed, false, !player.ground);
   if (player.speed > 0.3 && interior.tvOn) interior.tvOn = false;
 }
 function updateRoomCamera(dt) {
   const r = room || interior;
+  if (site) {
+    // 실내 조명 (천장 가운데)
+    site.anchor.updateWorldMatrix(true, false);
+    roomLight.position.set(0, 2.45, 0); site.anchor.localToWorld(roomLight.position);
+  }
+  if (firstPerson()) {
+    human.root.visible = false;
+    fpCamera();
+    camLocal.copy(camera.position); if (site) site.anchor.worldToLocal(camLocal);
+    return;
+  }
+  human.root.visible = true;
   const W = r.W, D = r.D;
   const base = Math.max(W, D);
   let target, dist, pitch, yaw = cam.yaw;
@@ -1386,7 +1460,7 @@ async function doSleep(bed, { until, alarm, lightOff, nap }) {
   human.setPose('lie');
   human.root.position.set(bed.position.x, 0.42, bed.position.z);
   human.root.rotation.y = bed.rotation.y;
-  cam.yaw = bed.rotation.y + 0.6; cam.pitch = 0.75;
+  cam.yaw = bed.rotation.y + 0.6; cam.pitch = -0.9;
   await fade(false);
   audio.play('snore');
   const mg = $('mg');
@@ -1418,7 +1492,7 @@ async function doSleep(bed, { until, alarm, lightOff, nap }) {
   player.pos.set(bed.position.x + 1.1, 0, bed.position.z + 0.6);
   interior.collide(player.pos, 0.3);
   human.root.position.copy(player.pos);
-  cam.yaw = 0.35; cam.pitch = 0.9;
+  cam.yaw = 0.35; cam.pitch = 0.08;
   if (!nap) {
     if (slept >= 6.5 && slept <= 9.5) S.mood = ST.clamp(S.mood + 8);
     else if (slept < 5) S.mood = ST.clamp(S.mood - 6);
@@ -1470,10 +1544,11 @@ const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 function startEdit() {
   editing = true;
+  if (site) site.editing = true;
   controls.enabled = false; controls.reset();
   setAct(null);
   $('editBtn').classList.add('hidden');
-  $('editBar').classList.remove('hidden');
+  $('editBar').classList.remove('hidden'); $('hud').classList.add('editing');
   $('needs').classList.add('hidden');
   cam.yaw = 0.0;
   renderEditBar();
@@ -1481,9 +1556,11 @@ function startEdit() {
 }
 function endEdit() {
   editing = false;
+  if (site) site.editing = false;
+  cam.pitch = 0.08;
   controls.enabled = true;
   select(null);
-  $('editBar').classList.add('hidden');
+  $('editBar').classList.add('hidden'); $('hud').classList.remove('editing');
   $('editBtn').classList.remove('hidden');
   $('needs').classList.remove('hidden');
   cam.yaw = 0.35;

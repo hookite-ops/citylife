@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GB } from './geo.js';
 import { createPed, SKINS, HAIRS, SHIRTS, PANTS, SHOES } from './human.js';
 import { PRODUCTS } from './products.js';
+import { SKUS, SECTION_SKUS, goodsMaterial, template, skuSize, GoodsBuilder, tagUV } from './goods.js';
 
 // ───────── 편의점 실내 ─────────
 // 좌표: x -7..7, z -6..6, 정면(유리벽·출입문)은 +z
@@ -57,7 +58,7 @@ export class MartRoom {
     this.zones = [];
     this.npcs = [];
     this.spills = [];
-    this.stock = { chill: 1, drink: 1, ramen: 1, grocery: 1, snack: 1 };
+    this.stock = { chill: 1, drink: 1, ramen: 1, grocery: 1, snack: 1, ice: 1 };
     this.sections = [];
     this.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05 });
     this.door = { x: 4.2, z: 5.5, x0: 3.2, x1: 5.2 };
@@ -125,7 +126,10 @@ export class MartRoom {
     const gondola = (x0, x1, z0, z1) => {
       fix.setColor(0xe9eaec); fix.box(x0, 0, z0, x1, 0.12, z1);
       fix.setColor(0xd2d5d9); fix.box(x0, 0.12, (z0 + z1) / 2 - 0.04, x1, 1.55, (z0 + z1) / 2 + 0.04);
-      for (let k = 0; k < 4; k++) { fix.setColor(0xf3f4f5); fix.box(x0, 0.32 + k * 0.38, z0, x1, 0.35 + k * 0.38, z1); }
+      for (let k = 0; k < 4; k++) {
+        fix.setColor(0xf3f4f5); fix.box(x0, 0.32 + k * 0.38, z0, x1, 0.35 + k * 0.38, z1);
+        fix.setColor(0xfafafa); fix.box(x0, 0.28 + k * 0.38, z0 - 0.012, x1, 0.35 + k * 0.38, z0); fix.box(x0, 0.28 + k * 0.38, z1, x1, 0.35 + k * 0.38, z1 + 0.012);
+      }
       fix.setColor(0x1f8a4c); fix.box(x0 - 0.02, 1.55, z0, x1 + 0.02, 1.62, z1);
       fix.setColor(0xd2d5d9); fix.box(x0 - 0.05, 0, z0, x0, 1.62, z1); fix.box(x1, 0, z0, x1 + 0.05, 1.62, z1);
       this.colliders.push({ x0: x0 - 0.05, x1: x1 + 0.05, z0, z1 });
@@ -137,11 +141,16 @@ export class MartRoom {
     for (let k = 0; k < 5; k++) { fix.setColor(0xf3f4f5); fix.box(6.35, 0.3 + k * 0.36, -4.5, 7, 0.33 + k * 0.36, 3.0); }
     this.colliders.push({ x0: 6.35, x1: 7, z0: -4.5, z1: 3.0 });
     // 뒤쪽 워크인 냉장고 (유리문)
-    fix.setColor(0x2b2f35); fix.box(-5.4, 0, -6, 3.6, 2.35, -5.15);
+    fix.setColor(0x2b2f35);
+    fix.box(-5.4, 0, -6, 3.6, 0.12, -5.15); fix.box(-5.4, 2.28, -6, 3.6, 2.35, -5.15);       // 바닥 · 천장
+    fix.box(-5.45, 0, -6, -5.35, 2.35, -5.15); fix.box(3.55, 0, -6, 3.65, 2.35, -5.15);     // 옆판
+    fix.box(-5.4, 0, -6, 3.6, 2.35, -5.96);                                                 // 뒤판
     fix.setColor(0xf6f9ff); fix.box(-5.3, 0.1, -5.95, 3.5, 2.25, -5.9); // 안쪽 밝은 벽
     for (let k = 0; k < 5; k++) { fix.setColor(0xb0b8c0); fix.box(-5.3, 0.25 + k * 0.42, -5.9, 3.5, 0.27 + k * 0.42, -5.25); }
     fix.setColor(0x1f8a4c); fix.box(-5.4, 2.35, -6, 3.6, 2.6, -5.1);
     for (let x = -5.4; x <= 3.61; x += 1.5) { fix.setColor(0x2b2f35); fix.box(x - 0.04, 0, -5.18, x + 0.04, 2.35, -5.1); }
+    for (let x = -5.4; x < 3.6; x += 1.5) { fix.setColor(0xc8ccd2); fix.box(x + 1.32, 0.8, -5.08, x + 1.36, 1.7, -5.02); fix.box(x + 1.32, 0.8, -5.1, x + 1.36, 0.83, -5.02); fix.box(x + 1.32, 1.67, -5.1, x + 1.36, 1.7, -5.02); }
+    fix.setColor(0x2b2f35); fix.box(-5.4, 0, -5.18, 3.6, 0.1, -5.1); fix.box(-5.4, 2.25, -5.18, 3.6, 2.35, -5.1);
     glassParts.push([-0.9, 1.2, -5.13, 9.0, 2.3]);
     this.colliders.push({ x0: -5.4, x1: 3.6, z0: -6, z1: -5.1 });
     // 왼쪽 오픈 냉장 매대 (도시락)
@@ -198,12 +207,22 @@ export class MartRoom {
     fix.setColor(0x9ac0e8); fix.box(-6.41, 1.0, 4.6, -6.39, 1.4, 5.2);
     this.colliders.push({ x0: -7, x1: -6.4, z0: 4.4, z1: 5.4 });
 
+    // 아이스크림 냉동고 (윗면 유리 미닫이)
+    fix.setColor(0xf2f4f6);
+    fix.box(1.2, 0, 3.3, 3.2, 0.3, 3.95);                                                    // 바닥
+    fix.box(1.2, 0.3, 3.3, 3.2, 0.82, 3.37); fix.box(1.2, 0.3, 3.88, 3.2, 0.82, 3.95);       // 앞 · 뒤
+    fix.box(1.2, 0.3, 3.37, 1.27, 0.82, 3.88); fix.box(3.13, 0.3, 3.37, 3.2, 0.82, 3.88);    // 옆
+    fix.setColor(0x2f6fd6); fix.box(1.19, 0.55, 3.29, 3.21, 0.68, 3.3); fix.box(1.19, 0.55, 3.95, 3.21, 0.68, 3.96); fix.box(1.19, 0.55, 3.3, 1.2, 0.68, 3.95); fix.box(3.2, 0.55, 3.3, 3.21, 0.68, 3.95);
+    fix.setColor(0xdfe8f0); fix.box(1.27, 0.3, 3.37, 3.13, 0.32, 3.88);
+    fix.setColor(0x9aa4ae); fix.box(1.2, 0.82, 3.3, 3.2, 0.86, 3.34); fix.box(1.2, 0.82, 3.91, 3.2, 0.86, 3.95); fix.box(2.18, 0.82, 3.3, 2.22, 0.86, 3.95);
+    glassParts.push([2.2, 0.85, 3.625, 1.96, 0.61, 'y']);
+    this.colliders.push({ x0: 1.2, x1: 3.2, z0: 3.3, z1: 3.95 });
     const fm = new THREE.Mesh(fix.build(), this.vc); fm.castShadow = true; fm.receiveShadow = true; R.add(fm);
     // 냉장고 유리
     const gmat = new THREE.MeshStandardMaterial({ color: 0xd8ecff, transparent: true, opacity: 0.16, roughness: 0.02, metalness: 0.5, depthWrite: false });
     for (const [cx, cy, cz, w, h, axis] of glassParts) {
       const g = new THREE.Mesh(new THREE.PlaneGeometry(w, h), gmat);
-      g.position.set(cx, cy, cz); if (axis === 'x') g.rotation.y = Math.PI / 2;
+      g.position.set(cx, cy, cz); if (axis === 'x') g.rotation.y = Math.PI / 2; if (axis === 'y') g.rotation.x = -Math.PI / 2;
       R.add(g);
     }
     // 냉장고 안쪽 조명
@@ -212,7 +231,7 @@ export class MartRoom {
     // 천장 조명 패널 (아래에서만 보임)
     const panel = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.FrontSide });
     for (const [x, z] of [[-3, -2], [3, -2], [-3, 3], [3, 3], [0, -4.5], [0, 0.5]]) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.3), panel); p.rotation.x = Math.PI / 2; p.position.set(x, H - 0.02, z); R.add(p);
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.3), panel); p.rotation.x = Math.PI / 2; p.position.set(x, H - 0.08, z); R.add(p);
     }
     // 간판 (뒷벽)
     const sign = canvasTex(512, 128, (x, w, h) => {
@@ -225,15 +244,26 @@ export class MartRoom {
     const st = canvasTex(256, 64, (x, w, h) => { x.fillStyle = '#d84a3a'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff'; x.font = '700 36px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('직원 전용', w / 2, h / 2 + 2); });
     const stm = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.18), new THREE.MeshBasicMaterial({ map: st })); stm.position.set(5.2, 1.8, -5.92); R.add(stm);
 
+    // 천장에 매달린 코너 안내판
+    for (const [txt, x, z, ry, col] of [['라면 · 식재료', 0.8, -2.7, 0, '#e8231e'], ['과자 · 빵', 0.8, 0.5, 0, '#ff8a00'], ['음료 · 우유', -0.9, -4.7, 0, '#1a6fd0'], ['도시락 · 김밥', -6.0, -3.6, Math.PI / 2, '#1f8a4c'], ['아이스크림', 2.2, 3.6, 0, '#2f6fd6']]) {
+      const t = canvasTex(512, 128, (c, w, h) => { c.fillStyle = col; c.fillRect(0, 0, w, h); c.fillStyle = '#fff'; c.fillRect(0, h - 10, w, 10); c.font = '800 62px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, w / 2, h / 2); });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide }));
+      m.position.set(x, 2.45, z); m.rotation.y = ry; R.add(m);
+      const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.5, 4), frameMat); wire.position.set(x, 2.9, z); R.add(wire);
+    }
+    this.goodsMat = goodsMaterial();
+    this.tagB = new GoodsBuilder();
     // ─ 상품 진열 (재고에 따라 보이는 양이 줄어듦) ─
-    this.addSection('chill', { axis: 'x', u0: -5.5, u1: -1.7, fixed: -6.55, dir: 1, levels: [0.98, 1.36, 1.74], depth: 0.45, kind: 'chill' });
-    this.addSection('drink', { axis: 'z', u0: -5.25, u1: 3.45, fixed: -5.75, dir: 1, levels: [0.28, 0.7, 1.12, 1.54, 1.96], depth: 0.5, kind: 'drink' });
-    this.addSection('ramen', { axis: 'z', u0: -2.5, u1: 4.1, fixed: -3.0, dir: -1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.4, kind: 'ramen' });
-    this.addSection('grocery', { axis: 'z', u0: -2.5, u1: 4.1, fixed: -2.4, dir: 1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.4, kind: 'grocery' });
-    this.addSection('snack', { axis: 'z', u0: -2.5, u1: 4.1, fixed: 0.2, dir: -1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.4, kind: 'snack' });
-    this.addSection('snack', { axis: 'z', u0: -2.5, u1: 4.1, fixed: 0.8, dir: 1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.4, kind: 'bread' });
-    this.addSection('snack', { axis: 'x', u0: -4.4, u1: 2.9, fixed: 6.65, dir: -1, levels: [0.33, 0.69, 1.05, 1.41, 1.77], depth: 0.45, kind: 'snack' });
-    this.addSection(null, { axis: 'x', u0: -0.1, u1: 3.5, fixed: -6.75, dir: 1, levels: [0.33, 0.73, 1.13, 1.53, 1.93], depth: 0.3, kind: 'misc' });
+    this.addSection('chill', { axis: 'x', u0: -5.5, u1: -1.7, fixed: -6.9, dir: 1, levels: [0.98, 1.36, 1.74], depth: 0.5, kind: 'chill' });
+    this.addSection('drink', { axis: 'z', u0: -5.25, u1: 3.45, fixed: -5.86, dir: 1, levels: [0.28, 0.7, 1.12, 1.54, 1.96], depth: 0.6, kind: 'drink' });
+    this.addSection('ramen', { axis: 'z', u0: -2.5, u1: 4.1, fixed: -2.76, dir: -1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.42, kind: 'ramen' });
+    this.addSection('grocery', { axis: 'z', u0: -2.5, u1: 4.1, fixed: -2.64, dir: 1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.42, kind: 'grocery' });
+    this.addSection('snack', { axis: 'z', u0: -2.5, u1: 4.1, fixed: 0.46, dir: -1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.42, kind: 'snack' });
+    this.addSection('snack', { axis: 'z', u0: -2.5, u1: 4.1, fixed: 0.54, dir: 1, levels: [0.35, 0.73, 1.11, 1.49], depth: 0.42, kind: 'bread' });
+    this.addSection('snack', { axis: 'x', u0: -4.4, u1: 2.9, fixed: 6.95, dir: -1, levels: [0.33, 0.69, 1.05, 1.41, 1.77], depth: 0.56, kind: 'snack' });
+    this.addSection(null, { axis: 'x', u0: -0.1, u1: 3.5, fixed: -6.93, dir: 1, levels: [0.33, 0.73, 1.13, 1.53, 1.93], depth: 0.36, kind: 'misc' });
+    this.addFreezer();
+    const tm = new THREE.Mesh(this.tagB.build(), this.goodsMat); R.add(tm);
 
     // 상호작용 구역
     const Z = (id, x0, z0, x1, z1, extra = {}) => this.zones.push({ id, x0, z0, x1, z1, ...extra });
@@ -244,6 +274,7 @@ export class MartRoom {
     Z('shelf', -2.6, -1.3, 4.2, 0.0, { cat: 'snack', label: '과자 코너', spot: [0.8, -0.6] });
     Z('shelf', -2.6, 1.0, 4.2, 2.2, { cat: 'snack', label: '빵·과자 코너', spot: [0.8, 1.6] });
     Z('shelf', 5.2, -4.5, 6.35, 3.0, { cat: 'snack', label: '과자 벽면 선반', spot: [5.8, -1] });
+    Z('shelf', 1.0, 2.6, 3.4, 3.3, { cat: 'ice', label: '아이스크림 냉동고', spot: [2.2, 2.8] });
     Z('counter', -4.15, 1.3, -2.6, 3.9);
     Z('pos', -6.55, 1.2, -5.05, 3.9);
     Z('storage', 4.3, -5.1, 6.2, -4.3);
@@ -253,7 +284,7 @@ export class MartRoom {
 
     // 경고 아이콘 (진열 부족)
     this.warn = {};
-    for (const [cat, x, y, z] of [['chill', -6.4, 2.6, -3.6], ['drink', -0.9, 2.95, -5.4], ['ramen', 0.8, 2.0, -3.4], ['grocery', 0.8, 2.0, -2.0], ['snack', 0.8, 2.0, 0.5]]) {
+    for (const [cat, x, y, z] of [['chill', -6.4, 2.6, -3.6], ['drink', -0.9, 2.95, -5.4], ['ramen', 0.8, 2.0, -3.4], ['grocery', 0.8, 2.0, -2.0], ['snack', 0.8, 2.0, 0.5], ['ice', 2.2, 1.6, 3.6]]) {
       const s = emojiSprite('📦'); s.position.set(x, y, z); s.visible = false; R.add(s); this.warn[cat] = s;
     }
     // 들고 다니는 상자 / 대걸레
@@ -275,64 +306,81 @@ export class MartRoom {
     this.steam = [];
   }
 
-  // 진열 상품 생성
+  // 진열 상품 생성: 같은 상품끼리 줄지어(페이싱) 놓고 맨 앞줄만 정밀 모델
   addSection(cat, o) {
-    const g = new GB();
-    const items = [];
-    const len = o.u1 - o.u0;
-    const palette = {
-      chill: [0xffffff, 0xf2e2b0, 0xe8d090, 0xd04040, 0x3a8a3a],
-      drink: [0xd02020, 0x2050c0, 0x20a040, 0xf0c020, 0xf2f2f2, 0x6a3a1a, 0xff8a20],
-      ramen: [0xd02020, 0xf0b020, 0x202020, 0xe06010, 0xf0f0f0],
-      grocery: [0xf0e0c0, 0xffffff, 0xd03030, 0x3a6a3a, 0xc0c0c0, 0x2050a0],
-      snack: [0xf0c020, 0xd03030, 0x2a6ad0, 0x7a3ad0, 0x30a050, 0xff7a20, 0x6a3a1a],
-      bread: [0xd0a060, 0xb07a40, 0xf0e0c0, 0xe0c080],
-      misc: [0x2a4a7a, 0xd8d8d8, 0xb03030, 0x3a3a3a, 0xe0c040],
-    }[o.kind];
-    for (const y of o.levels) {
-      let u = o.u0 + 0.05;
-      while (u < o.u1 - 0.1) {
-        const col = palette[Math.floor(Math.random() * palette.length)];
-        let w, h, d, shape = 'box';
-        switch (o.kind) {
-          case 'drink': w = 0.075; h = 0.24; d = 0.075; shape = 'bottle'; break;
-          case 'ramen': if (Math.random() < 0.6) { w = 0.12; h = 0.13; d = 0.12; shape = 'cup'; } else { w = 0.15; h = 0.2; d = 0.08; } break;
-          case 'chill': if (Math.random() < 0.5) { w = 0.12; h = 0.06; d = 0.1; } else { w = 0.24; h = 0.06; d = 0.18; } break;
-          case 'grocery': w = 0.16; h = 0.12 + Math.random() * 0.1; d = 0.12; if (Math.random() < 0.3) { shape = 'cup'; w = 0.09; h = 0.06; } break;
-          case 'bread': w = 0.18; h = 0.08; d = 0.14; break;
-          default: w = 0.12 + Math.random() * 0.06; h = 0.17 + Math.random() * 0.07; d = 0.05; break;
+    const skus = SECTION_SKUS[o.kind];
+    const rot = o.axis === 'z' ? (o.dir > 0 ? 0 : Math.PI) : (o.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const pos = (along, across) => o.axis === 'z' ? [along, across] : [across, along];
+    const facings = [];
+    let prev = null;
+    o.levels.forEach((y, li) => {
+      const space = (o.levels[li + 1] ?? (y + 0.42)) - y - 0.05;
+      let u = o.u0 + 0.04, guard = 0;
+      while (u < o.u1 - 0.08 && guard++ < 400) {
+        let id; do { id = skus[Math.floor(Math.random() * skus.length)]; } while (id === prev && skus.length > 1);
+        prev = id;
+        let { w, h, d } = skuSize(id);
+        if (h > space) continue;
+        const run = 2 + Math.floor(Math.random() * 3);
+        const stack = ['bag', 'pet', 'tri', 'wedge', 'jar'].includes(SKUS[id].shape) ? 1 : Math.max(1, Math.min(3, Math.floor(space / (h + 0.004))));
+        const rows = Math.max(1, Math.floor(o.depth / (d + 0.008)));
+        // 가격표
+        const [tx, tz] = pos(u + w / 2, o.fixed + o.dir * (o.depth + 0.04));
+        this.tagB.quad(tx, y - 0.068, tz, rot, 0.075, 0.037, tagUV(id));
+        for (let f = 0; f < run && u + w < o.u1; f++) {
+          const items = [];
+          for (let k = 0; k < rows; k++) for (let q = 0; q < stack; q++) {
+            const front = k === rows - 1 && q === stack - 1 || k === rows - 1 && stack > 1;
+            const [x, z] = pos(u + w / 2, o.fixed + o.dir * (k + 0.5) * (d + 0.008));
+            items.push({ id, lo: !front, x, y: y + q * (h + 0.003), z, r: rot + (front ? (Math.random() - 0.5) * 0.08 : 0) });
+          }
+          facings.push(items);
+          u += w + 0.01;
         }
-        for (let k = 0; k < Math.max(1, Math.floor(o.depth / (d + 0.03))); k++) {
-          const dd = (k + 0.5) * (d + 0.03) * o.dir;
-          items.push({ u, y, dd, w, h, d, col, shape });
-        }
-        u += w + 0.025;
+        u += 0.015;
       }
+    });
+    this.buildFacings(cat, facings);
+  }
+  buildFacings(cat, facings) {
+    for (let i = facings.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [facings[i], facings[j]] = [facings[j], facings[i]]; }
+    const gb = new GoodsBuilder();
+    const offsets = [0];
+    for (const f of facings) {
+      for (const it of f) gb.add(template(it.id, it.lo), it.x, it.y, it.z, it.r, it.tilt || 0);
+      offsets.push(gb.count);
     }
-    // 섞어서 재고가 줄면 여기저기 빠지게
-    for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
-    for (const it of items) {
-      g.setColor(it.col);
-      const along = it.u + it.w / 2;
-      const across = o.fixed + it.dd;
-      const [x, z] = o.axis === 'z' ? [along, across] : [across, along];
-      if (it.shape === 'box') g.cbox(x, it.y + it.h / 2, z, o.axis === 'z' ? it.w : it.d, it.h, o.axis === 'z' ? it.d : it.w);
-      else if (it.shape === 'cup') { g.addGeo(new THREE.CylinderGeometry(it.w / 2, it.w / 2.6, it.h, 7).translate(x, it.y + it.h / 2, z)); }
-      else { g.addGeo(new THREE.CylinderGeometry(it.w / 2, it.w / 2, it.h * 0.75, 6).translate(x, it.y + it.h * 0.375, z)); g.setColor(0xf2f2f2); g.addGeo(new THREE.CylinderGeometry(it.w / 4, it.w / 2, it.h * 0.25, 6).translate(x, it.y + it.h * 0.875, z)); }
-    }
-    const geo = g.build();
-    const mesh = new THREE.Mesh(geo, this.vc);
-    mesh.castShadow = false; mesh.receiveShadow = true;
+    if (!gb.count) return;
+    const mesh = new THREE.Mesh(gb.build(), this.goodsMat);
+    mesh.receiveShadow = true;
     this.root.add(mesh);
-    this.sections.push({ cat, mesh, full: geo.index.count, per: geo.index.count / items.length });
+    this.sections.push({ cat, mesh, offsets });
+  }
+  // 냉동고 안: 위에서 보이게 칸칸이
+  addFreezer() {
+    const skus = SECTION_SKUS.ice, facings = [];
+    let x = 1.32, k = 0;
+    while (x < 3.02) {
+      const id = skus[k++ % skus.length];
+      const { w, h, d } = skuSize(id);
+      const zs = SKUS[id].shape === 'bar' ? [3.52, 3.74] : [3.46, 3.57, 3.68, 3.79];
+      for (const z of zs) {
+        const n = 2 + Math.floor(Math.random() * 3), items = [];
+        for (let q = 0; q < n; q++) items.push({ id, lo: q < n - 1, x: x + w / 2 + (Math.random() - 0.5) * 0.01, y: 0.32 + q * (h + 0.002), z, r: (Math.random() - 0.5) * 0.12 });
+        facings.push(items);
+      }
+      x += w + 0.015;
+    }
+    this.buildFacings('ice', facings);
   }
 
   refreshStock() {
     for (const s of this.sections) {
       if (!s.cat) continue;
       const ratio = THREE.MathUtils.clamp(this.stock[s.cat], 0, 1);
-      const n = Math.floor(s.full / s.per * (0.08 + 0.92 * ratio));
-      s.mesh.geometry.setDrawRange(0, Math.floor(n * s.per / 3) * 3);
+      const n = s.offsets.length - 1;
+      const keep = Math.round(n * (0.08 + 0.92 * ratio));
+      s.mesh.geometry.setDrawRange(0, s.offsets[keep]);
     }
   }
 

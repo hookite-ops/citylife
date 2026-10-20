@@ -36,3 +36,4 @@
 - alarm.mp3 — 알람
 - snore.mp3 — 잠자기
 - light.mp3 — 전등 스위치
+- jump.mp3 — 점프

@@ -116,9 +116,9 @@ export function createHuman(o = {}) {
   let phase = 0;
   const api = {
     ...r, pose: 'stand', carry: false, work: false,
-    animate(dt, speed, run) {
+    animate(dt, speed, run, air) {
       if (api.pose !== 'stand') return;
-      const moving = speed > 0.2;
+      const moving = speed > 0.2 && !air;
       phase += dt * (run ? 11 : 7.5) * Math.min(1.3, speed / (run ? 5 : 1.9));
       const amp = moving ? (run ? 1.0 : 0.75) * Math.min(1, speed / 1.2) : 0;
       const sw = Math.sin(phase) * amp;
@@ -127,6 +127,8 @@ export function createHuman(o = {}) {
       legs[0].hip.rotation.x = to(legs[0].hip.rotation.x, sw);
       legs[1].hip.rotation.x = to(legs[1].hip.rotation.x, -sw);
       let a0 = -sw, a1 = sw;
+      // 로블록스 점프 · 낙하 자세: 팔을 위로
+      if (air) { a0 = a1 = -2.9; legs[0].hip.rotation.x = to(legs[0].hip.rotation.x, 0.25); legs[1].hip.rotation.x = to(legs[1].hip.rotation.x, -0.15); }
       if (api.carry) { a0 = a1 = -1.4; }
       if (api.work) { a1 = -1.2 + Math.sin(performance.now() / 110) * 0.35; a0 = -0.9; }
       arms[0].shoulder.rotation.x = to(arms[0].shoulder.rotation.x, a0);

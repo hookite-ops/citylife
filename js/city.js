@@ -88,6 +88,7 @@ export class City {
     this.parking = {};
     this.parkedSpots = [];
     this.poleGrid = new Map();
+    this.treeGrid = new Map();
     this.blocks = [];
     this.chunks = [];
     this.sites = [];
@@ -803,6 +804,7 @@ export class City {
       for (const l of b.parkLamps) pickC(l[0], l[1]).parkLamps.push(l);
       // 조각 범위를 내용물에 맞게 넓힘 (큰 건물이 경계를 넘을 때)
       for (const c of cs) for (const s of c.specs) { c.x0 = Math.min(c.x0, s.x0); c.x1 = Math.max(c.x1, s.x1); c.z0 = Math.min(c.z0, s.z0); c.z1 = Math.max(c.z1, s.z1); }
+      for (const t of b.trees) { const k = Math.floor(t[0] / 10) + ',' + Math.floor(t[1] / 10); let a = this.treeGrid.get(k); if (!a) this.treeGrid.set(k, a = []); a.push(t); }
       b.chunks = cs.filter(c => c.specs.length || c.extras.length || c.trees.length || c.lamps.length || c.parkLamps.length);
       this.chunks.push(...b.chunks);
     }
@@ -954,7 +956,7 @@ export class City {
     for (const s of this.sites) {
       const d = Math.hypot(s.x - camPos.x, s.z - camPos.z);
       const nearS = d < this.siteR;
-      s.shell.visible = nearS && !s.inside;
+      s.shell.visible = nearS && !(s.inside && (s.kind === 'tower' || s.editing));
       if (s.far) s.far.visible = !nearS && !s.inside;
       s.anchor.visible = nearS;
       if (s.signs) s.signs.visible = !s.inside;
@@ -991,8 +993,9 @@ export class City {
       const wrect = s.wrect;
       const W = s.W, D = s.D, t = s.wall;
       const B = new Bld();
-      const skin = (lx0, lz0, lx1, lz1, y0, y1, col) => { const r = wrect(lx0, lz0, lx1, lz1); B.solid.setRGB(...col); B.solid.box(r.x0, Y0 + y0, r.z0, r.x1, Y0 + y1, r.z1); };
-      const topH = Y0 + (s.kind === 'mart' ? 3.3 : s.kind === 'home' ? 2.9 : 3.3) + s.floors * (s.fh || 3.6);
+      const adj = (v, lim) => Math.abs(Math.abs(v) - lim) < 1e-6 ? v + Math.sign(v) * 0.025 : v;   // 실내 벽과 겹치지 않게
+      const skin = (lx0, lz0, lx1, lz1, y0, y1, col) => { const r = wrect(adj(lx0, W / 2), adj(lz0, D / 2), adj(lx1, W / 2), adj(lz1, D / 2)); B.solid.setRGB(...col); B.solid.box(r.x0, Y0 + y0, r.z0, r.x1, Y0 + y1, r.z1); };
+      const topH = Y0 + (s.kind === 'mart' ? 3.3 : s.kind === 'home' ? 3.0 : 3.3) + s.floors * (s.fh || 3.6);
       const wallCol = (lx0, lz0, lx1, lz1, h = topH) => { this.colliders.push({ ...wrect(lx0, lz0, lx1, lz1), h }); };
       const [nx, nz] = s.normal;
       if (s.kind === 'mart') {
@@ -1013,7 +1016,7 @@ export class City {
         const sbk = new THREE.Mesh(new THREE.BoxGeometry(6.3, 1.7, 0.3), this.mat.plain); sbk.position.set(-1.5, gh + 1.0, D / 2 + t + 0.15); s.signs.add(sbk);
         this.parking['mart' + s.idx] = this.curbSpot({ x0: outer.x0, x1: outer.x1, z0: outer.z0, z1: outer.z1 }, s.frontKey, W / 2);
       } else if (s.kind === 'home') {
-        const gh = 2.9, nb = s.neighbor;
+        const gh = 3.0, nb = s.neighbor;
         const outer = wrect(-W / 2 - t, -D / 2 - t, W / 2 + t + nb, D / 2 + t);
         const up = { type: 'upper', ...outer, y0: Y0 + gh, floors: s.floors, fh: s.fh, color: s.color, seed: 7100, front: s.frontKey, style: 'punched' };
         buildNear(B, up); s.specs = [up];
@@ -1048,6 +1051,7 @@ export class City {
         B.solid.box(bl.x0, Y0, fz, bl.x0 + 0.4, Y0 + gh, bl.z1); B.solid.box(bl.x1 - 0.4, Y0, fz, bl.x1, Y0 + gh, bl.z1);
         for (const [a, b] of [[bl.x0 + 1, cx - W / 2 - 1], [cx + W / 2 + 1, bl.x1 - 1]]) { B.room.setRGB(0.25, 0.28, 0.3); B.room.wall(b, fz - 0.01, a, fz - 0.01, Y0 + 1, Y0 + 2.4); }
         B.solid.setRGB(...s.accent); B.solid.box(bl.x0, Y0 + 3.0, fz - 0.06, bl.x1, Y0 + gh, fz);
+        B.solid.setRGB(0.93, 0.93, 0.91); B.solid.box(bl.x0 + 0.4, Y0 + 3.0, fz + 0.4, bl.x1 - 0.4, Y0 + gh, bl.z1 - 0.4, { bottom: true });
         B.solid.setRGB(0.85, 0.85, 0.82); B.solid.box(cx - 5, Y0 + 3.4, fz - 3.6, cx + 5, Y0 + 3.65, fz);
         this.colliders.push({ x0: bl.x0, x1: cx - W / 2, z0: fz, z1: bl.z1, h: 20 }, { x0: cx + W / 2, x1: bl.x1, z0: fz, z1: bl.z1, h: 20 }, { x0: bl.x0, x1: bl.x1, z0: fz + D, z1: bl.z1, h: 20 });
         this.colliders.push({ x0: cx - W / 2, x1: cx - 1.5, z0: fz - 0.1, z1: fz + 0.25, h: topH }, { x0: cx + 1.5, x1: cx + W / 2, z0: fz - 0.1, z1: fz + 0.25, h: topH });
@@ -1076,7 +1080,9 @@ export class City {
       stub.position.set(cx, (y - 0.3 + t.y0) / 2, cz); stub.visible = false; g.add(stub);
       const slab = new THREE.Mesh(new THREE.BoxGeometry(t.x1 - t.x0 + 2, 0.3, t.z1 - t.z0 + 2), new THREE.MeshStandardMaterial({ color: 0xdedcd6, roughness: 0.8 }));
       slab.position.set(cx, y - 0.17, cz); slab.visible = false; g.add(slab);
-      const site = { kind: 'tower', id: 'home', homeId: kind, W: H.w, D: H.d, x: cx, z: cz, y, rot, group: g, shell, anchor, stub: [stub, slab], spec: t };
+      const ceil = new THREE.Mesh(new THREE.BoxGeometry(H.w + 1, 0.3, H.d + 1), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.9 }));
+      ceil.position.set(0, 2.85, 0); ceil.visible = false; anchor.add(ceil);
+      const site = { kind: 'tower', id: 'home', homeId: kind, W: H.w, D: H.d, x: cx, z: cz, y, rot, group: g, shell, anchor, stub: [stub, slab, ceil], spec: t };
       this.makeSiteFrame(site);
       this.sites.push(site);
       this.siteFar(site, [t]);
@@ -1134,6 +1140,16 @@ export class City {
       const a = this.poleGrid.get((gx + i) + ',' + (gz + j));
       if (!a) continue;
       for (let k = 0; k < a.length; k += 2) if (Math.abs(a[k] - x) < r && Math.abs(a[k + 1] - z) < r && Math.hypot(a[k] - x, a[k + 1] - z) < r) return true;
+    }
+    return false;
+  }
+  // 카메라용: 점이 나뭇잎 속인지
+  inCanopy(x, y, z) {
+    const gx = Math.floor(x / 10), gz = Math.floor(z / 10);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const a = this.treeGrid.get((gx + i) + ',' + (gz + j));
+      if (!a) continue;
+      for (const [tx, tz, sc] of a) { const r = 2.6 * sc; if (y > 2.2 * sc && y < 7.2 * sc && Math.abs(tx - x) < r && Math.abs(tz - z) < r && Math.hypot(tx - x, tz - z) < r) return true; }
     }
     return false;
   }

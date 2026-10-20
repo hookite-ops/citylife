@@ -30,6 +30,10 @@ export const PRODUCTS = [
   { id: 'milk', name: '바나나우유', icon: '🍼', price: 1700, cat: 'drink', hunger: 6, mood: 4 },
   { id: 'energy', name: '에너지 드링크', icon: '🥫', price: 2500, cat: 'drink', hunger: 1, energy: 22, mood: -2 },
   { id: 'juice', name: '오렌지 주스', icon: '🧃', price: 2200, cat: 'drink', hunger: 4, mood: 3 },
+  // 아이스크림 (냉동고)
+  { id: 'icebar', name: '멜론바', icon: '🍈', price: 1200, cat: 'ice', hunger: 3, mood: 6 },
+  { id: 'icecone', name: '초코콘', icon: '🍦', price: 1800, cat: 'ice', hunger: 5, mood: 7 },
+  { id: 'icecup', name: '딸기컵 아이스크림', icon: '🍨', price: 1500, cat: 'ice', hunger: 4, mood: 6 },
 ];
 export const P = Object.fromEntries(PRODUCTS.map(p => [p.id, p]));
 
@@ -39,6 +43,7 @@ export const CATS = {
   grocery: { name: '식재료', icon: '🥚' },
   snack: { name: '과자·빵', icon: '🍫' },
   drink: { name: '음료', icon: '🥤' },
+  ice: { name: '아이스크림', icon: '🍦' },
 };
 
 export const INGREDIENTS = {
