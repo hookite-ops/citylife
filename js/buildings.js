@@ -48,9 +48,9 @@ export function slotUV(i) {
 }
 
 export function makeMaterials() {
-  const solid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.04 });
+  const solid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.02 });
   const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.7 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x9cc0d4, transparent: true, opacity: 0.34, roughness: 0.03, metalness: 0.8, envMapIntensity: 1.8, depthWrite: false, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xa8d4ee, transparent: true, opacity: 0.32, roughness: 0.03, metalness: 0.8, envMapIntensity: 1.8, depthWrite: false, side: THREE.DoubleSide });
   const room = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
   const lit = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, emissive: 0xffffff, emissiveIntensity: 0, color: 0x5a5a5a });
   lit.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;'); };
@@ -359,6 +359,18 @@ export function buildNear(B, s) {
       for (const u of [fr.L / 2 - 7.5, fr.L / 2 + 7.5]) fbox(B.solid, fr, u - 0.3, u + 0.3, s.y0, s.y0 + s.fh, -5.4, -6);
       break;
     }
+    case 'upper': {
+      // 1층(실내 공간) 위에 얹는 위층들 + 1층 천장
+      const st = s.style || 'ribbon';
+      for (const k of ['S', 'N', 'E', 'W']) {
+        if (k === front || (st === 'punched')) facade(B, F[k], R, s.y0, s.floors, s.fh, st === 'punched' ? { mode: 'punched', bay: 2.8, win: 1.4, wall: s.color, frame: [0.95, 0.95, 0.93], lit: 0.4, kind: 'home', ac: k !== front } : { mode: 'ribbon', bay: 1.8, wall: s.color, spandrel: s.accent || s.color, frame: [0.25, 0.27, 0.3], lit: 0.45, kind: 'office' });
+        else if (k === opp[front]) facade(B, F[k], R, s.y0, s.floors, s.fh, { mode: 'punched', bay: 3.2, win: 1.4, wall: s.color, frame: [0.3, 0.3, 0.32], lit: 0.35, kind: 'home' });
+        else facade(B, F[k], R, s.y0, s.floors, s.fh, { mode: 'blank', wall: s.color });
+      }
+      rgb(B.solid, [0.92, 0.92, 0.9]); B.solid.box(s.x0, s.y0 - 0.3, s.z0, s.x1, s.y0, s.z1, { bottom: true });
+      roof(B, s, H, R, { wall: s.color, mech: s.floors > 2 });
+      break;
+    }
     case 'school': {
       facade(B, F[front], R, s.y0, s.floors, s.fh, { mode: 'ribbon', bay: 3, wall: s.color, spandrel: s.accent, frame: [0.85, 0.86, 0.86], lit: 0.25, kind: 'office', sill: 1.0, head: 0.7 });
       facade(B, F[opp[front]], R, s.y0, s.floors, s.fh, { mode: 'ribbon', bay: 3, wall: s.color, frame: [0.85, 0.86, 0.86], lit: 0.2, kind: 'office', sill: 1.1, head: 0.8 });
@@ -426,36 +438,69 @@ function shopRow(B, f, R, y0, gh, s) {
   rgb(B.solid, s.color); fbox(B.solid, f, 0, L, y0 + gh - 0.1, y0 + gh, 0.35, 0);
 }
 
-// ───────── 먼 거리용 단순 모델 ─────────
-const FAR_BODY = { apt: null, tower: [0.55, 0.62, 0.68], office: [0.32, 0.4, 0.48], civic: [0.7, 0.74, 0.76], podium: null, shop: null, villa: null, school: null };
-export function buildFar(F, s) {
-  const R = seeded(s.seed + 7);
+// ───────── LOD: 중간 거리 · 먼 거리 ─────────
+// 상세 모델 안쪽으로 살짝 들어간 상자라서, 가까이서 상세 모델이 보일 때는 그 속에 숨어요.
+const INSET = { apt: 1.7, tower: 1.5, office: 2.6, shop: 1.45, podium: 2.1, villa: 1.15, civic: 2.4, school: 1.45, upper: 1.45 };
+const FAR_BODY = { tower: [0.62, 0.7, 0.76], office: [0.36, 0.46, 0.56], civic: [0.74, 0.78, 0.8] };
+export function lodFrame(s) {
   const gh = (s.type === 'shop' || s.type === 'podium') ? (s.groundH || 4.6) : s.type === 'villa' ? 2.8 : 0;
-  const H = s.y0 + gh + s.floors * s.fh + (s.type === 'apt' ? 0.3 : 0);
-  const body = FAR_BODY[s.type] || s.color;
-  rgb(F.solid, body);
-  F.solid.box(s.x0, s.y0, s.z0, s.x1, H, s.z1);
-  if (s.type === 'apt') { rgb(F.solid, s.accent); const f = faces(s)[s.front || 'S'], L = f.L; fbox(F.solid, f, 0.4, L - 0.4, H + 5.6, H + 6.4, 1.5, 0.3); }
-  const fc = faces(s);
-  const glassy = s.type === 'office' || s.type === 'tower' || s.type === 'civic';
-  for (const k of ['S', 'N', 'E', 'W']) {
-    const f = fc[k];
-    // 층 띠 (슬래브 · 창 줄)
+  const k = INSET[s.type] ?? 1.5;
+  const b = { x0: s.x0 + k, x1: s.x1 - k, z0: s.z0 + k, z1: s.z1 - k };
+  if (b.x1 - b.x0 < 1) { const c = (s.x0 + s.x1) / 2; b.x0 = c - 0.5; b.x1 = c + 0.5; }
+  if (b.z1 - b.z0 < 1) { const c = (s.z0 + s.z1) / 2; b.z0 = c - 0.5; b.z1 = c + 0.5; }
+  const y0 = s.y0 + gh, H = s.y0 + gh + s.floors * s.fh - 0.15;
+  return { b, gh, y0, H, k };
+}
+// 중간 거리: 상자 + 층마다 창 띠 + (밤) 켜진 창
+export function buildMid(F, s) {
+  const R = seeded(s.seed + 7);
+  const { b, y0, H, gh } = lodFrame(s);
+  if (s.floors <= 0) return;
+  const glassy = s.type === 'office' || s.type === 'tower' || s.type === 'civic' || s.upper === 'curtain';
+  rgb(F.solid, FAR_BODY[s.type] || s.color || [0.85, 0.85, 0.83]);
+  F.solid.box(b.x0, y0, b.z0, b.x1, H, b.z1);
+  groundCore(F, s, gh);
+  const fc = faces(b);
+  for (const key of ['S', 'N', 'E', 'W']) {
+    const f = fc[key];
+    rgb(F.solid, glassy ? [0.2, 0.28, 0.36] : [0.3, 0.36, 0.42]);
     for (let i = 0; i < s.floors; i++) {
-      const y = s.y0 + gh + i * s.fh;
-      rgb(F.solid, glassy ? [0.75, 0.78, 0.8] : [0.32, 0.38, 0.44]);
-      if (glassy) fquad(F.solid, f, 0, f.L, y, y + 0.35, -0.03);
-      else fquad(F.solid, f, 0.5, f.L - 0.5, y + 0.95, y + s.fh - 0.55, -0.03);
+      const y = y0 + i * s.fh;
+      if (glassy) fquad(F.solid, f, 0.2, f.L - 0.2, y + 0.45, y + s.fh - 0.4, -0.02);
+      else fquad(F.solid, f, 0.6, f.L - 0.6, y + 0.95, y + s.fh - 0.55, -0.02);
     }
-    // 밤에 켜진 창
-    const bw = s.type === 'office' ? 3.2 : 3.4, nb = Math.max(1, Math.floor(f.L / bw));
-    const lf = s.type === 'office' ? 0.4 : s.type === 'school' ? 0.15 : 0.35;
-    for (let i = 0; i < s.floors; i++) for (let b = 0; b < nb; b++) {
+    const bw = 3.4, nb = Math.max(1, Math.floor(f.L / bw));
+    const lf = s.type === 'office' ? 0.3 : s.type === 'school' ? 0.1 : 0.28;
+    for (let i = 0; i < s.floors; i += 2) for (let k = 0; k < nb; k++) {
       if (R() > lf) continue;
-      const y = s.y0 + gh + i * s.fh, u = (b + 0.5) * f.L / nb;
+      const y = y0 + i * s.fh, u = (k + 0.5) * f.L / nb;
       rgb(F.lit, pick(R, s.type === 'office' ? LIT_OFFICE : LIT_HOME));
-      fquad(F.lit, f, u - bw * 0.35, u + bw * 0.35, y + 0.9, y + s.fh - 0.5, -0.05);
+      fquad(F.lit, f, u - bw * 0.36, u + bw * 0.36, y + 0.95, y + s.fh - 0.5, -0.04);
     }
-    if (gh) { rgb(F.lit, pick(R, LIT_SHOP)); if ((s.streets || [s.front]).includes(k)) fquad(F.lit, f, 0.3, f.L - 0.3, s.y0 + 0.2, s.y0 + gh - 1.5, -0.05); }
+  }
+}
+// 1층 상가(속이 비어 있음) 아래는 더 깊이 들어간 상자로
+function groundCore(F, s, gh) {
+  if (!gh || s.type === 'villa') return;
+  const k = 5.4;
+  if (s.x1 - s.x0 < 2 * k + 1 || s.z1 - s.z0 < 2 * k + 1) return;
+  rgb(F.solid, [0.75, 0.75, 0.73]);
+  F.solid.box(s.x0 + k, s.y0, s.z0 + k, s.x1 - k, s.y0 + gh, s.z1 - k);
+}
+// 먼 거리: 그냥 상자 + 띄엄띄엄 켜진 창 몇 개
+export function buildBox(F, s) {
+  const R = seeded(s.seed + 11);
+  const { b, H, y0, gh } = lodFrame(s);
+  if (s.floors <= 0) return;
+  rgb(F.solid, FAR_BODY[s.type] || s.color || [0.85, 0.85, 0.83]);
+  F.solid.box(b.x0, y0, b.z0, b.x1, H, b.z1);
+  groundCore(F, s, gh);
+  const fc = faces(b);
+  const n = Math.min(26, 4 + Math.floor(s.floors * (b.x1 - b.x0 + b.z1 - b.z0) / 90));
+  for (let k = 0; k < n; k++) {
+    const f = fc[pick(R, ['S', 'N', 'E', 'W'])];
+    const u = 1 + R() * (f.L - 3), y = s.y0 + 3 + R() * (H - s.y0 - 5);
+    rgb(F.lit, pick(R, s.type === 'office' ? LIT_OFFICE : LIT_HOME));
+    fquad(F.lit, f, u, u + 2.4, y, y + 1.6, -0.05);
   }
 }

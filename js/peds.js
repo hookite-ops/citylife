@@ -38,7 +38,7 @@ export class Peds {
     const female = Math.random() < 0.5;
     const p = createPed({
       skin: pick(SKINS), hair: pick(HAIRS), shirt: pick(SHIRTS), pants: pick(PANTS), shoes: pick(SHOES),
-      longHair: female && Math.random() < 0.7, bag: Math.random() < 0.3 ? pick([0x222222, 0x6a4a2a, 0x2a3a5a]) : null,
+      hairStyle: female ? (Math.random() < 0.6 ? 'long' : 'bun') : (Math.random() < 0.25 ? 'spiky' : 'short'), hat: Math.random() < 0.12 ? pick([0x1a1a1a, 0xd63a3a, 0x2f6fd6]) : null, bag: Math.random() < 0.3 ? pick([0x222222, 0x6a4a2a, 0x2a3a5a]) : null,
     });
     const s = 0.92 + Math.random() * 0.16;
     p.root.scale.setScalar(female ? s * 0.94 : s);
@@ -61,12 +61,14 @@ export class Peds {
     o.per = 2 * (o.rect[2] - o.rect[0]) + 2 * (o.rect[3] - o.rect[1]);
     o.s = Math.random() * o.per;
   }
+  reseed(p) { this.focus = p.clone(); for (const o of this.list) this.relocate(o); }
   update(dt, playerPos, camPos) {
     this.focus = playerPos;
     this.relocT = (this.relocT || 0) + dt;
-    if (this.relocT > 1) {
+    if (this.relocT > 0.5) {
       this.relocT = 0;
-      for (const o of this.list) if (o.pos.distanceTo(playerPos) > 280) { this.relocate(o); break; }
+      let n = 0;
+      for (const o of this.list) if (o.pos.distanceTo(playerPos) > 280) { this.relocate(o); if (++n >= 3) break; }
     }
     for (const o of this.list) {
       const [x, z, tx, tz] = this.pointAt(o, o.s);

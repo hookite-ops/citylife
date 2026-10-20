@@ -47,7 +47,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 setAniso(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.25, 2600);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.25, 5000);
 const audio = new Audio(); setAudio(audio);
 audio.setEnabled(S.settings.sound);
 
@@ -55,9 +55,12 @@ let city, sky, traffic, peds, interior, human, controls, mart, martGame, cooking
 let room = null;          // 지금 들어가 있는 실내 (interior | mart | school)
 let school, schoolGame, schoolEntrance = null;
 let martEntrance = null;  // 들어온 편의점 입구
+let site = null, homeSite = null, martSite = null, schoolSite = null;   // 실내가 붙어 있는 건물
+const camLocal = new THREE.Vector3(), localCam = { position: camLocal }, pwTmp = new THREE.Vector3();
+const roomAmb = new THREE.AmbientLight(0xfff6ea, 0);
 S.inventory.ing = S.inventory.ing || {};
 // 신도시로 지도가 바뀌면 예전 위치 정보는 버림
-if (S.mapVer !== 2) { S.player = null; S.carPos = null; S.waypoint = null; S.delivery = null; S.mapVer = 2; }
+if (S.mapVer !== 3) { S.player = null; S.carPos = null; S.waypoint = null; S.delivery = null; S.mapVer = 3; }
 if (S.inventory.food.ramen) { S.inventory.food.cupramen = (S.inventory.food.cupramen || 0) + S.inventory.food.ramen; delete S.inventory.food.ramen; }
 let pcar = null;        // 플레이어 소유 차량 (현재 선택된 차)
 let inCar = false;
@@ -100,8 +103,8 @@ async function boot() {
   human = createHuman({ skin: 0xe9c6a2, hair: 0x1c1410, shirt: 0xf2f2f0, jacket: 0x2e3f57, pants: 0x2a2f38, shoes: 0xf4f4f4 });
   scene.add(human.root);
   // 알바 조끼
-  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.212, 0.168, 0.46, 12).scale(1, 1, 0.66).translate(0, 1.31, 0), new THREE.MeshStandardMaterial({ color: 0x1f8a4c, roughness: 0.8 }));
-  const tag = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.03, 0.01), new THREE.MeshStandardMaterial({ color: 0xffffff })); tag.position.set(0.08, 1.42, 0.14);
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.37).translate(0, 1.0, 0), new THREE.MeshStandardMaterial({ color: 0x1f8a4c, roughness: 0.5 }));
+  const tag = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.01), new THREE.MeshStandardMaterial({ color: 0xffffff })); tag.position.set(0.15, 1.18, 0.19);
   vest.add(tag); vest.visible = false; vest.castShadow = true; human.body.add(vest);
   human.applyUniform = (on) => { vest.visible = on; };
   mart = new MartRoom();
@@ -121,7 +124,9 @@ async function boot() {
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
   // 타이틀 배경용 카메라 위치
-  const home = city.entrances.find(e => e.id === 'home');
+  scene.add(roomAmb);
+  setupHome();
+  const home = homeEntrance();
   player.pos.set(home.x, 0.18, home.z + 2);
   human.root.position.copy(player.pos);
   S.minutes = hasSave ? S.minutes : S.minutes;
@@ -164,17 +169,19 @@ async function startGame(fresh) {
   $('title').classList.add('hidden');
   $('hud').classList.remove('hidden');
   mode = 'city';
-  const home = city.entrances.find(e => e.id === 'home');
+  const home = homeEntrance();
   if (!fresh && S.player) {
     player.pos.set(S.player.x, 0, S.player.z);
     player.heading = S.player.h || 0;
   } else {
-    player.pos.set(home.x + home.nx * 1.5, 0, home.z + home.nz * 1.5);
-    player.heading = home.face;
+    player.pos.set(home.x + home.nx * 2.5, 0, home.z + home.nz * 2.5);
+    player.heading = home.face + Math.PI;
   }
   cam.yaw = player.heading + Math.PI;
   city.collide(player.pos, 0.35, { walker: true });
   city.warmup(player.pos);
+  traffic.reseed(player.pos); peds.reseed(player.pos);
+  attachRooms(true);
   spawnPlayerCar();
   if (!fresh && S.player?.inCar && pcar) enterCar(true);
   if (!fresh && S.player?.inside) await enterHome(true);
@@ -247,7 +254,7 @@ function currentTarget() {
 }
 
 // ───────── 메인 루프 ─────────
-let last = performance.now(), hudT = 0, miniT = 0, saveT = 0, checkT = 0;
+let last = performance.now(), hudT = 0, miniT = 0, saveT = 0, checkT = 0, attachT = 0;
 function loop(now) {
   requestAnimationFrame(loop);
   window.__frames++;
@@ -260,8 +267,8 @@ function loop(now) {
     traffic.update(dt, player.pos, null, sky.night, camera.position);
     peds.update(dt, player.pos, camera.position);
     const a = elapsed * 0.04;
-    camera.position.set(Math.cos(a) * 330, 120, Math.sin(a) * 330);
-    camera.lookAt(0, 20, 0);
+    camera.position.set(Math.cos(a) * 560, 190, Math.sin(a) * 560);
+    camera.lookAt(0, 30, 0);
     renderer.render(scene, camera);
     return;
   }
@@ -291,48 +298,57 @@ function loop(now) {
     updateCityCamera(dt);
     updateTargets(dt);
     if (!paused) updateCityInteract();
+    attachT -= dt; if (attachT <= 0) { attachT = 0.5; attachRooms(); }
+    if (!paused && !inCar) checkWalkIn();
+    // 바깥에서도 가까운 실내 문은 열리고 닫힘
+    if (homeSite && homeSite.kind !== 'tower') { const [lx, lz] = homeSite.toLocal(player.pos.x, player.pos.z); if (Math.abs(lx) < 12 && Math.abs(lz) < 12) interior.updateDoor?.(dt, { x: lx, z: lz }); }
+    if (martSite) { const [lx, lz] = martSite.toLocal(player.pos.x, player.pos.z); if (Math.abs(lx) < 12 && Math.abs(lz) < 9) mart.updateDoor(dt, { x: lx, z: lz }); }
+    roomAmb.intensity = 0;
     audio.ambient(sky.night > 0.5, false);
     audio.engine(inCar && !paused, pcar ? pcar.speed : 0, inCar ? lastThrottle : 0, pcar ? pcar.spec.maxSpeed : 30);
     miniT -= dt; if (miniT <= 0) { miniT = 0.1; drawMinimap(); }
     renderer.render(scene, camera);
-  } else if (mode === 'home') {
-    sky.update(hours, player.pos, dt);
-    renderer.toneMappingExposure = 1;
-    if (!paused && !editing) updateRoomWalking(dt);
-    updateRoomCamera(dt);
-    interior.update(sky.night, sky.uniforms.top.value, sky.uniforms.horizon.value, camera);
-    if (!cooking.active) interior.steamTick(dt, 0);
-    if (!paused && !editing) updateHomeInteract();
-    audio.ambient(sky.night > 0.5, true);
+  } else {
+    // 실내 (실제 건물 안) — 바깥 도시도 계속 돌아감
+    const pwv = playerWorld();
+    sky.update(hours, pwv, dt);
+    renderer.toneMappingExposure = 1 + sky.night * 0.25;
+    city.update(dt, sky.night, elapsed, camera.position);
+    traffic.update(paused ? 0 : dt, pwv, null, sky.night, camera.position);
+    if (!paused) peds.update(dt, pwv, camera.position);
+    const lightOn = mode !== 'home' || interior.lightOn !== false;
+    roomAmb.intensity = lightOn ? 0.55 + sky.night * 0.9 : 0.12;
+    if (mode === 'home') {
+      if (!paused && !editing) updateRoomWalking(dt);
+      updateRoomCamera(dt);
+      interior.update(sky.night, sky.uniforms.top.value, sky.uniforms.horizon.value, localCam);
+      interior.updateDoor?.(dt, player.pos);
+      if (!cooking.active) interior.steamTick(dt, 0);
+      if (!paused && !editing) updateHomeInteract();
+      audio.ambient(sky.night > 0.5, true);
+    } else if (mode === 'mart') {
+      if (!paused) updateRoomWalking(dt);
+      const npcDt = sheetOpen() || phoneOpen ? 0 : dt;
+      mart.updateNpcs(npcDt, player.pos, { atCounter: (c, d) => martGame.atCounter(c, d) });
+      if (!timeFrozen) martGame.update(dt);
+      mart.updateDoor(dt, player.pos);
+      mart.updateWarn(martGame.onShift, elapsed);
+      mart.updateFx(dt);
+      updateRoomCamera(dt);
+      mart.updateWalls(localCam);
+      if (!paused) updateMartInteract();
+      audio.ambient(false, true);
+    } else if (mode === 'school') {
+      if (!paused) updateRoomWalking(dt);
+      school.update(paused ? 0 : dt, player.pos);
+      updateRoomCamera(dt);
+      school.updateWalls(localCam, sky.night);
+      if (!paused) { const a = schoolGame.action(school.zoneAt(player.pos), schoolEntrance.school); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
+      audio.ambient(false, true);
+    }
     audio.engine(false, 0, 0, 30);
-    renderer.render(interior.scene, camera);
-  } else if (mode === 'mart') {
-    sky.update(hours, player.pos, dt);
-    renderer.toneMappingExposure = 1;
-    if (!paused) updateRoomWalking(dt);
-    const npcDt = sheetOpen() || phoneOpen ? 0 : dt;
-    mart.updateNpcs(npcDt, player.pos, { atCounter: (c, d) => martGame.atCounter(c, d) });
-    if (!timeFrozen) martGame.update(dt);
-    mart.updateDoor(dt, player.pos);
-    mart.updateWarn(martGame.onShift, elapsed);
-    mart.updateFx(dt);
-    updateRoomCamera(dt);
-    mart.updateWalls(camera);
-    if (!paused) updateMartInteract();
-    audio.ambient(false, true);
-    audio.engine(false, 0, 0, 30);
-    renderer.render(mart.scene, camera);
-  } else if (mode === 'school') {
-    sky.update(hours, player.pos, dt);
-    renderer.toneMappingExposure = 1;
-    if (!paused) updateRoomWalking(dt);
-    school.update(paused ? 0 : dt, player.pos);
-    updateRoomCamera(dt);
-    school.updateWalls(camera, sky.night);
-    if (!paused) { const a = schoolGame.action(school.zoneAt(player.pos), schoolEntrance.school); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
-    audio.ambient(false, true);
-    audio.engine(false, 0, 0, 30);
-    renderer.render(school.scene, camera);
+    if (!paused && !editing) checkWalkOut();
+    renderer.render(scene, camera);
   }
   hudT -= dt; if (hudT <= 0) { hudT = 0.25; updateHUD(); }
   saveT += dt; if (saveT > 20) { saveT = 0; persist(); }
@@ -341,8 +357,8 @@ function loop(now) {
 
 function persist() {
   if (mode === 'home') {
-    const h = city.entrances.find(e => e.id === 'home');
-    S.player = { x: S.player?.x ?? h.x, z: S.player?.z ?? h.z, h: S.player?.h ?? 0, inside: true };
+    const h = homeEntrance();
+    S.player = { x: h.x + h.nx * 1.4, z: h.z + h.nz * 1.4, h: h.face, inside: true };
   }
   else if (mode === 'school' && schoolEntrance) S.player = { x: schoolEntrance.x + schoolEntrance.nx * 1.4, z: schoolEntrance.z + schoolEntrance.nz * 1.4, h: schoolEntrance.face, inside: false };
   else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x + martEntrance.nx * 1.4, z: martEntrance.z + martEntrance.nz * 1.4, h: martEntrance.face, inside: false };
@@ -493,12 +509,7 @@ function updateCityCamera(dt) {
   camera.position.set(target.x + dx * d, Math.max(0.4, target.y + dy * d), target.z + dz * d);
   camera.lookAt(target);
 }
-function insideBuilding(x, y, z) {
-  for (const c of city.colliders) {
-    if (x > c.x0 - 0.3 && x < c.x1 + 0.3 && z > c.z0 - 0.3 && z < c.z1 + 0.3 && y < c.h + 0.5) return true;
-  }
-  return false;
-}
+function insideBuilding(x, y, z) { return city.insideBuilding(x, y, z); }
 
 // ───────── 목적지/배달 ─────────
 function updateTargets(dt) {
@@ -548,10 +559,11 @@ function updateCityInteract() {
   }
   let best = null, bd = 2.6;
   for (const e of city.entrances) {
+    if (e.id === 'home' && e.homeId !== S.home) continue;
     const dd = Math.hypot(p.x - e.x, p.z - e.z);
     if (dd < bd) { bd = dd; best = e; }
   }
-  if (best) setAct(`${best.icon} ${best.name}`, () => openPlace(best));
+  if (best) setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best));
   else setAct(null);
 }
 $('btnAct').addEventListener('click', () => { if (actHandler && !busy) { audio.click(); actHandler(); } });
@@ -575,9 +587,9 @@ window.addEventListener('keydown', (e) => {
 
 function openPlace(e) {
   switch (e.id) {
-    case 'home': return enterHome();
-    case 'mart': return enterMart(e);
-    case 'school': return schoolGame.gate(e, () => enterSchool(e));
+    case 'home': return e.walkIn ? walkInto(e.site) : enterHome();
+    case 'mart': return walkInto(e.site);
+    case 'school': return schoolGame.gate(e, () => walkInto(e.site));
     case 'rest': return restSheet();
     case 'office': return officeSheet();
     case 'delivery': return deliverySheet();
@@ -692,7 +704,7 @@ function checkGoals() {
 const mini = $('mini'), mctx = mini.getContext('2d');
 function drawMinimap() {
   const W = mini.width, R = W / 2, s = 0.7;
-  const p = inCar && pcar ? pcar.pos : player.pos;
+  const p = inCar && pcar ? pcar.pos : playerWorld();
   mctx.save();
   mctx.clearRect(0, 0, W, W);
   mctx.beginPath(); mctx.arc(R, R, R, 0, 7); mctx.clip();
@@ -701,7 +713,7 @@ function drawMinimap() {
   mctx.fillStyle = '#4a5260';
   drawBlocks(mctx);
   mctx.fillStyle = '#7a8494';
-  for (const c of city.colliders) if (!c.soft) mctx.fillRect(c.x0, c.z0, c.x1 - c.x0, c.z1 - c.z0);
+  for (const c of city.query(p.x - 170, p.z - 170, p.x + 170, p.z + 170)) if (!c.soft) mctx.fillRect(c.x0, c.z0, c.x1 - c.x0, c.z1 - c.z0);
   // 장소 아이콘
   mctx.font = '14px sans-serif'; mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
   for (const e of city.entrances) {
@@ -742,7 +754,7 @@ function drawBlocks(ctx) {
     const z = ZONES[j][i];
     const r = blockRect(i, j);
     ctx.fillStyle = ZONE_COLOR[z] || '#59616e';
-    if (z === 'L') { const R0 = blockRect(3, 3), R1 = blockRect(4, 4); ctx.fillRect(R0.x0, R0.z0, R1.x1 - R0.x0, R1.z1 - R0.z0); continue; }
+    if (z === 'L') { const R0 = blockRect(5, 5), R1 = blockRect(6, 6); ctx.fillRect(R0.x0, R0.z0, R1.x1 - R0.x0, R1.z1 - R0.z0); continue; }
     ctx.fillRect(r.x0, r.z0, r.w, r.d);
   }
   ctx.fillStyle = '#2f6a8a';
@@ -1000,10 +1012,11 @@ function realtySheet() {
           S.placed[id] = [{ uid: S.nextUid++, id: 'bed', x: -h.w / 2 + 1.0, z: -h.d / 2 + 1.2, rot: 0 }, { uid: S.nextUid++, id: 'fridge', x: -h.w / 2 + 0.45, z: h.d / 2 - 0.5, rot: 1 }];
         }
         closeSheet(); audio.chime();
-        bigMsg('🏡 내 집 마련!', `${h.name}로 이사했어요. 한빛빌라 입구로 들어가세요`, 3400);
+        setupHome();
+        bigMsg('🏡 내 집 마련!', `${h.name}로 이사했어요. 휴대폰 지도에서 🏠를 찾아가세요`, 3400);
         checkGoals(); persist();
       },
-      move: (id) => { S.home = id; closeSheet(); toast(`📦 ${HOMES.find(x => x.id === id).name}로 이사했어요`); persist(); },
+      move: (id) => { S.home = id; setupHome(); closeSheet(); toast(`📦 ${HOMES.find(x => x.id === id).name}로 이사했어요`); persist(); },
     }),
   });
 }
@@ -1023,22 +1036,107 @@ function gymSheet() {
 
 // ───────── 집 (실내) ─────────
 // ───────── 실내 공통 ─────────
-function enterRoomCommon(r) {
+// 실내 공간은 도시 속 실제 건물(사이트) 안에 붙어 있어요.
+// 실내에 있는 동안 player.pos 는 그 건물 기준 좌표예요.
+function homeEntrance() { return city.entrances.find(e => e.id === 'home' && e.homeId === S.home) || city.entrances.find(e => e.id === 'home'); }
+function playerWorld() {
+  if (site && room) { site.anchor.updateWorldMatrix(true, false); return site.anchor.localToWorld(pwTmp.copy(player.pos)); }
+  return pwTmp.copy(player.pos);
+}
+function setupHome() {
+  interior.build(S.home, S.placed[S.home]);
+  let moved = false;
+  for (const it of S.placed[S.home] || []) { const x = it.x, z = it.z; interior.clampItem(it); if (x !== it.x || z !== it.z) moved = true; }
+  if (moved) interior.build(S.home, S.placed[S.home]);
+  if (interior.lightOn === undefined) interior.lightOn = true;
+  homeSite = city.siteFor('home', S.home);
+  homeSite.anchor.add(interior.root);
+  interior.walkIn = homeSite.kind !== 'tower';
+}
+// 가까운 편의점 · 학교 건물에 실내를 붙임
+function attachRooms(force) {
+  const p = playerWorld();
+  const near = (kind, r) => { let best = null, bd = r; for (const s of city.sites) if (s.kind === kind) { const d = Math.hypot(s.x - p.x, s.z - p.z); if (d < bd) { bd = d; best = s; } } return best; };
+  const m = near('mart', 260);
+  if (m && m !== martSite && mode !== 'mart') { mart.clearNpcs(); m.anchor.add(mart.root); martSite = m; }
+  const sc = near('school', 320);
+  if (sc && sc !== schoolSite && mode !== 'school') {
+    school.build(sc.school); sc.anchor.add(school.root); schoolSite = sc;
+    schoolGame.onEnter(sc.school);
+  }
+}
+function roomOf(s) {
+  if (s === martSite) return ['mart', mart];
+  if (s === schoolSite) return ['school', school];
+  if (s === homeSite) return ['home', interior];
+  return null;
+}
+function checkWalkIn() {
+  for (const s of [martSite, schoolSite, homeSite]) {
+    if (!s || s.kind === 'tower') continue;
+    const [lx, lz] = s.toLocal(player.pos.x, player.pos.z);
+    if (Math.abs(lx) < s.W / 2 - 0.2 && lz < s.D / 2 - 0.25 && lz > -s.D / 2) {
+      const r = roomOf(s); if (r) enterSite(s, r[0], r[1], lx, lz);
+      return;
+    }
+  }
+}
+function enterSite(s, kind, r, lx, lz) {
   if (inCar) exitCar();
-  scene.remove(human.root);
-  r.scene.add(human.root);
-  room = r;
-  human.root.visible = true;
+  s.anchor.updateWorldMatrix(true, false);
+  camLocal.copy(camera.position); s.anchor.worldToLocal(camLocal);
+  site = s; room = r; mode = kind;
+  s.inside = true;
+  player.pos.set(lx, 0, lz);
+  player.heading -= s.rot; cam.yaw -= s.rot;
+  player.speed = Math.min(player.speed, 1.7);
+  s.anchor.add(human.root);
+  human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
   human.setPose('stand');
   setAct(null); setCarBtn(null);
   $('mini').classList.add('hidden');
   $('btnRun').classList.add('hidden');
-  player.speed = 0;
+  if (kind === 'mart') {
+    martEntrance = city.entrances.find(e => e.site === s);
+    martGame.onEnter();
+    audio.play('door');
+    if (!S.martVisited) { S.martVisited = true; setTimeout(() => toast('🛒 매대 앞에 서면 물건을 담을 수 있어요 · 계산은 계산대 앞에서'), 600); }
+  } else if (kind === 'school') {
+    schoolEntrance = city.entrances.find(e => e.site === s);
+    schoolGame.onEnter(s.school);
+    if (!S.schoolVisited) { S.schoolVisited = true; setTimeout(() => toast('🏫 왼쪽: 교실 · 가운데: ' + (s.school === 'univ' ? '도서관 (행정실은 복도)' : '교무실') + ' · 오른쪽: 급식실'), 600); }
+  } else if (kind === 'home') {
+    if (!$('editBtn')) {
+      const eb = document.createElement('button'); eb.id = 'editBtn'; eb.className = 'pill'; eb.textContent = '🛠 꾸미기';
+      eb.addEventListener('click', () => { audio.click(); startEdit(); });
+      $('actions').appendChild(eb);
+    }
+    $('editBtn').classList.remove('hidden');
+    $('btnLight').classList.remove('hidden');
+    updateLightBtn();
+    S.player = { ...(S.player || {}), inside: true };
+  }
+  city.updateLOD(camera.position, 0);
 }
-// 실내 → 도시 (UI만 정리, 위치는 호출한 쪽에서)
-function leaveRoom() {
-  if (room) room.scene.remove(human.root);
+// 건물 밖으로 (좌표를 도시 기준으로 되돌림)
+function leaveSite() {
+  const s = site;
+  if (!s) { leaveRoom(); return; }
+  if (s.kind !== 'tower' && player.pos.z < s.D / 2 + 0.9) player.pos.z = s.D / 2 + 0.9;
+  s.anchor.updateWorldMatrix(true, false);
+  const w = s.anchor.localToWorld(player.pos.clone());
+  player.pos.set(w.x, city.groundY(w.x, w.z), w.z);
+  player.heading += s.rot; cam.yaw += s.rot;
   scene.add(human.root);
+  human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
+  s.inside = false;
+  site = null;
+  leaveRoom();
+  city.updateLOD(camera.position, 0);
+}
+// 실내 → 도시 (UI 정리)
+function leaveRoom() {
+  if (editing) endEdit();
   human.setPose('stand'); human.carry = false; human.work = false;
   room = null;
   mode = 'city';
@@ -1048,49 +1146,62 @@ function leaveRoom() {
   $('btnLight').classList.add('hidden');
   interior.tvOn = false;
   cam.kitchen = false;
+  cam.pitch = Math.min(cam.pitch, 0.5);
   if (S.player) S.player.inside = false;
+}
+// 문으로 걸어서 나가기
+let exitCool = 0;
+function checkWalkOut() {
+  if (!site || site.kind === 'tower' || busy) return;
+  if (player.pos.z < site.D / 2 + 0.3) return;
+  if (elapsed < exitCool) { player.pos.z = site.D / 2 + 0.25; return; }
+  exitCool = elapsed + 1.5;
+  if (mode === 'mart') return exitMart(true);
+  if (mode === 'school') return exitSchool(true);
+  if (mode === 'home') return exitHome(true);
 }
 function placeAtEntrance(e) {
   player.pos.set(e.x + (e.nx ?? 0) * 1.4, 0.18, e.z + (e.nz ?? 1) * 1.4);
   player.heading = e.face;
   cam.yaw = player.heading + Math.PI; cam.pitch = 0.3;
-  city.collide(player.pos, 0.35);
+  city.collide(player.pos, 0.35, { walker: true });
   human.root.position.copy(player.pos);
   updateCityCamera(10);
 }
+// 입구 버튼을 누르면 문 안쪽으로 들어감
+function walkInto(s) {
+  if (!s || busy) return;
+  if (s.kind === 'mart' && s !== martSite) { mart.clearNpcs(); s.anchor.add(mart.root); martSite = s; }
+  if (s.kind === 'school' && s !== schoolSite) { school.build(s.school); s.anchor.add(school.root); schoolSite = s; }
+  const r = roomOf(s); if (!r) return;
+  const dx = s.kind === 'mart' ? 4.2 : s.kind === 'school' ? 0 : interior.door.x;
+  player.heading = Math.PI + s.rot; cam.yaw = 0.3 + s.rot; cam.pitch = 0.9; cam.tdist = 5;
+  enterSite(s, r[0], r[1], dx, s.D / 2 - 0.8);
+  updateRoomCamera(10);
+}
 
 async function enterHome(silent) {
+  if (mode === 'home') return;
   busy = true;
   if (!silent) await fade(true);
-  if (mode === 'mart') leaveRoom();
-  mode = 'home';
-  interior.build(S.home, S.placed[S.home]);
-  interior.refreshLamps();
-  if (interior.lightOn === undefined) interior.lightOn = true;
-  enterRoomCommon(interior);
-  player.pos.set(interior.door.x, 0, interior.door.z - 0.6);
+  if (site) { if (mode === 'mart') mart.clearNpcs(); leaveSite(); }
+  if (inCar) exitCar();
+  if (!homeSite || homeSite.homeId !== S.home) setupHome();
+  enterSite(homeSite, 'home', interior, interior.door.x, interior.door.z - 0.6);
   player.heading = Math.PI;
   cam.yaw = 0.35; cam.pitch = 0.9; cam.tdist = 5;
-  human.root.position.copy(player.pos);
+  human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
   updateRoomCamera(10);
-  if (!$('editBtn')) {
-    const eb = document.createElement('button'); eb.id = 'editBtn'; eb.className = 'pill'; eb.textContent = '🛠 꾸미기';
-    eb.addEventListener('click', () => { audio.click(); startEdit(); });
-    $('actions').appendChild(eb);
-  }
-  $('editBtn').classList.remove('hidden');
-  $('btnLight').classList.remove('hidden');
-  updateLightBtn();
-  S.player = { ...(S.player || {}), inside: true };
   if (!silent) await fade(false);
   busy = false;
   ST.save(S);
 }
-async function exitHome() {
+async function exitHome(walk) {
+  if (walk === true && homeSite.kind !== 'tower') { leaveSite(); persist(); return; }
   busy = true;
   await fade(true);
-  leaveRoom();
-  placeAtEntrance(city.entrances.find(e => e.id === 'home'));
+  leaveSite();
+  placeAtEntrance(homeEntrance());
   persist();
   await fade(false);
   busy = false;
@@ -1099,64 +1210,34 @@ function updateLightBtn() { $('btnLight').textContent = interior.lightOn ? '💡
 $('btnLight').addEventListener('click', () => { interior.lightOn = !interior.lightOn; audio.play('light'); updateLightBtn(); });
 
 // ───────── 편의점 ─────────
-async function enterMart(e) {
-  busy = true;
-  await fade(true);
-  mode = 'mart';
-  martEntrance = e;
-  enterRoomCommon(mart);
-  player.pos.set(4.2, 0, 5.3);
-  player.heading = Math.PI;
-  cam.yaw = 0.35; cam.pitch = 0.95; cam.tdist = 5;
-  human.root.position.copy(player.pos);
-  martGame.onEnter();
-  updateRoomCamera(10);
-  audio.play('door');
-  await fade(false);
-  busy = false;
-  if (!S.martVisited) { S.martVisited = true; setTimeout(() => toast('🛒 매대 앞에 서면 물건을 담을 수 있어요 · 계산은 계산대 앞에서'), 600); }
-}
-function exitMart() {
+function exitMart(walk) {
   martGame.tryExit(async () => {
+    mart.clearNpcs();
+    if (walk === true) { leaveSite(); audio.play('door'); persist(); return; }
     busy = true;
     await fade(true);
-    mart.clearNpcs();
-    leaveRoom();
+    leaveSite();
     placeAtEntrance(martEntrance);
     audio.play('door');
     persist();
     await fade(false);
     busy = false;
   });
+  if (walk === true && mode === 'mart') player.pos.z = mart.D / 2 + 0.1;
 }
-async function enterSchool(e) {
-  busy = true;
-  await fade(true);
-  mode = 'school';
-  schoolEntrance = e;
-  school.build(e.school);
-  enterRoomCommon(school);
-  player.pos.set(0, 0, 6.6);
-  player.heading = Math.PI;
-  cam.yaw = 0.25; cam.pitch = 0.95; cam.tdist = 5;
-  human.root.position.copy(player.pos);
-  schoolGame.onEnter(e.school);
-  updateRoomCamera(10);
-  await fade(false);
-  busy = false;
-  if (!S.schoolVisited) { S.schoolVisited = true; setTimeout(() => toast('🏫 왼쪽: 교실 · 가운데: ' + (e.school === 'univ' ? '도서관 (행정실은 복도)' : '교무실') + ' · 오른쪽: 급식실'), 600); }
-}
-function exitSchool() {
+function exitSchool(walk) {
   const go = async () => {
+    if (walk === true) { leaveSite(); persist(); return; }
     busy = true;
     await fade(true);
-    leaveRoom();
+    leaveSite();
     placeAtEntrance(schoolEntrance);
     persist();
     await fade(false);
     busy = false;
   };
   if (schoolGame.duty && schoolGame.T.level === schoolEntrance.school) {
+    if (walk === true) player.pos.z = school.D / 2 + 0.1;
     openSheet({
       icon: '🏃', title: '조퇴할까요?', sub: '아직 근무 중이에요',
       html: `<p class="note">지금 나가면 오늘 근무가 끝나고 평가가 깎여요.</p><button class="btn wide red" data-act="go">조퇴하기</button><button class="btn wide gray" data-act="stay">계속 근무</button>`,
@@ -1209,7 +1290,12 @@ function updateRoomCamera(dt) {
   if (camera.aspect < 1 && !cam.kitchen) dist *= 1 + (1 - camera.aspect) * 0.9;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const want = new THREE.Vector3(target.x + Math.sin(yaw) * cp * dist, target.y + sp * dist, target.z + Math.cos(yaw) * cp * dist);
-  camera.position.lerp(want, Math.min(1, dt * 6));
+  camLocal.lerp(want, Math.min(1, dt * 6));
+  const a = site ? site.anchor : null;
+  if (!a) { camera.position.copy(camLocal); camera.lookAt(target); return; }
+  a.updateWorldMatrix(true, false);
+  camera.position.copy(camLocal); a.localToWorld(camera.position);
+  a.localToWorld(target);
   camera.lookAt(target);
 }
 function updateHomeInteract() {
@@ -1434,21 +1520,25 @@ function renderEditBar() {
   }));
 }
 function select(m) {
-  if (selHelper) { interior.scene.remove(selHelper); selHelper = null; }
+  if (selHelper) { scene.remove(selHelper); selHelper = null; }
   sel = m;
-  if (m) { selHelper = new THREE.BoxHelper(m, 0x46d1ff); interior.scene.add(selHelper); }
+  if (m) { selHelper = new THREE.BoxHelper(m, 0x46d1ff); scene.add(selHelper); }
   renderEditBar();
 }
 function syncSel() {
   const it = sel.userData.item;
   sel.position.set(it.x, 0, it.z);
+  sel.updateMatrixWorld(true);
   selHelper?.update();
 }
 function floorPoint(e) {
   ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const p = new THREE.Vector3();
-  return ray.ray.intersectPlane(floorPlane, p) ? p : null;
+  if (!site) return null;
+  site.anchor.updateWorldMatrix(true, false);
+  floorPlane.constant = -site.anchor.position.y;
+  return ray.ray.intersectPlane(floorPlane, p) ? site.anchor.worldToLocal(p) : null;
 }
 canvas.addEventListener('pointerdown', (e) => {
   if (!editing) return;
@@ -1472,8 +1562,8 @@ async function faint() {
   busy = true;
   if (martGame.onShift) await martGame.endShift(true);
   if (inCar) { pcar.speed = 0; exitCar(); }
-  if (mode === 'mart') { mart.clearNpcs(); leaveRoom(); }
-  if (mode === 'school') { if (schoolGame.duty) await schoolGame.clockOut(true); leaveRoom(); }
+  if (mode === 'mart') { mart.clearNpcs(); leaveSite(); }
+  if (mode === 'school') { if (schoolGame.duty) await schoolGame.clockOut(true); leaveSite(); }
   await fade(true);
   bigMsg('😵 기절했어요…', '구급차에 실려 갔어요. 병원비 50,000원', 3000);
   await wait(2600);
@@ -1589,8 +1679,8 @@ function phoneMap() {
   for (const c of city.colliders) if (!c.soft) x.fillRect(o + c.x0 * s, o + c.z0 * s, (c.x1 - c.x0) * s, (c.z1 - c.z0) * s);
   x.font = '18px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
   for (const e of city.entrances) { x.fillStyle = 'rgba(10,14,20,.8)'; x.beginPath(); x.arc(o + e.x * s, o + e.z * s, icoR, 0, 7); x.fill(); x.fillText(e.icon, o + e.x * s, o + e.z * s + 1); }
-  const p = inCar && pcar ? pcar.pos : player.pos;
-  if (mode === 'city') { x.fillStyle = '#46d1ff'; x.strokeStyle = '#fff'; x.lineWidth = 4; x.beginPath(); x.arc(o + p.x * s, o + p.z * s, 11, 0, 7); x.fill(); x.stroke(); }
+  const p = inCar && pcar ? pcar.pos : playerWorld();
+  { x.fillStyle = '#46d1ff'; x.strokeStyle = '#fff'; x.lineWidth = 4; x.beginPath(); x.arc(o + p.x * s, o + p.z * s, 11, 0, 7); x.fill(); x.stroke(); }
   if (pcar && !inCar) x.fillText('🚗', o + pcar.pos.x * s, o + pcar.pos.z * s);
   const seen = new Set();
   const list = city.entrances.filter(e => { const k = e.id + e.name; if (seen.has(k) && e.id !== 'mart') return false; seen.add(k); return true; });
@@ -1606,20 +1696,21 @@ async function taxi(e) {
   if (inCar) { toast('운전 중에는 택시를 부를 수 없어요', 'bad'); return; }
   if (martGame.onShift || schoolGame.duty) { toast('근무 중이에요! 퇴근하고 가요', 'bad'); return; }
   if (mode === 'mart' && martGame.basketCount()) { toast('계산 안 한 물건이 있어요', 'bad'); return; }
-  const p = player.pos;
-  const d = mode !== 'city' ? Math.hypot(e.x - city.entrances.find(x => x.id === 'home').x, e.z - city.entrances.find(x => x.id === 'home').z) : Math.hypot(e.x - p.x, e.z - p.z);
+  const p = playerWorld();
+  const d = Math.hypot(e.x - p.x, e.z - p.z);
   const fare = Math.round((4800 + d * 14) / 100) * 100;
   if (!pay(fare)) return;
   closePhone();
   busy = true;
   await fade(true);
-  if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveRoom(); }
+  if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveSite(); }
   ST.passTime(S, 5 + d / 60, 'idle');
   player.pos.set(e.x + e.nx * 1.6, 0.18, e.z + e.nz * 1.6);
   player.heading = e.face + Math.PI;
   cam.yaw = player.heading + Math.PI;
   city.collide(player.pos, 0.35, { walker: true });
   city.warmup(player.pos);
+  traffic.reseed(player.pos); peds.reseed(player.pos); attachRooms(true);
   human.root.position.copy(player.pos);
   await wait(500);
   await fade(false);
@@ -1657,5 +1748,5 @@ resize();
 boot().catch(err => { $('loadTxt').textContent = '오류: ' + err.message; console.error(err); });
 
 // 디버그/테스트용
-window.__game = { get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => enterSchool(city.entrances.find(e => e.school === t)),
-  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => enterMart(city.entrances.find(e => e.id === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+window.__game = { get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
+  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

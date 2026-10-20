@@ -31,13 +31,7 @@ export class SchoolRoom {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1b2027);
     this.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65 });
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.1);
-    this.sun = new THREE.DirectionalLight(0xfff4e0, 1.3);
-    this.sun.position.set(-6, 14, -12); this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    const sc = this.sun.shadow.camera; sc.left = -16; sc.right = 16; sc.top = 12; sc.bottom = -12; sc.near = 1; sc.far = 50;
-    this.sun.shadow.bias = -0.0006;
-    this.scene.add(hemi, this.sun, this.sun.target);
+
     this.level = null;
   }
 
@@ -75,7 +69,7 @@ export class SchoolRoom {
     for (let x = -W / 2; x <= W / 2; x += 2.6) fr.cbox(x, 1.6, -D / 2, 0.1, 1.4, 0.12);
     fr.cbox(0, 0.9, -D / 2 + 0.08, W, 0.08, 0.3);
     back.add(new THREE.Mesh(fr.build(), this.vc));
-    const sky = new THREE.Mesh(new THREE.PlaneGeometry(W, 1.4), new THREE.MeshBasicMaterial({ color: 0xbfe0f6 }));
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(W, 1.4), new THREE.MeshStandardMaterial({ color: 0xbfd8e8, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.4, depthWrite: false }));
     sky.position.set(0, 1.6, -D / 2 - 0.05); back.add(sky); this.skyPlane = sky;
     R.add(back); this.walls.push(back);
     mkWall(-W / 2, -D / 2, -W / 2, D / 2, 0, H, [-1, 0]);
@@ -83,7 +77,11 @@ export class SchoolRoom {
     // 정면 (유리 현관)
     const front = new THREE.Group(); front.userData.n = [0, 1];
     const glass = new THREE.MeshStandardMaterial({ color: 0xb8d4e0, transparent: true, opacity: 0.18, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
-    const fp = new THREE.Mesh(new THREE.PlaneGeometry(W, H), glass); fp.position.set(0, H / 2, D / 2); front.add(fp);
+    for (const sx of [-1, 1]) { const fp = new THREE.Mesh(new THREE.PlaneGeometry(W / 2 - 1.5, H), glass); fp.position.set(sx * (W / 4 + 0.75), H / 2, D / 2); front.add(fp); }
+    const fpt = new THREE.Mesh(new THREE.PlaneGeometry(3, H - 2.4), glass); fpt.position.set(0, 2.4 + (H - 2.4) / 2, D / 2); front.add(fpt);
+    const fr2 = new GB(); fr2.setColor(0x6a6e74); fr2.cbox(-1.5, H / 2, D / 2, 0.12, H, 0.15); fr2.cbox(1.5, H / 2, D / 2, 0.12, H, 0.15); fr2.cbox(0, 2.4, D / 2, 3, 0.12, 0.15);
+    for (let x = -W / 2; x <= W / 2 + 0.01; x += 2.6) if (Math.abs(x) > 1.6) fr2.cbox(x, H / 2, D / 2, 0.08, H, 0.12);
+    front.add(new THREE.Mesh(fr2.build(), this.vc));
     R.add(front); this.walls.push(front);
 
     const fx = new GB();
@@ -208,7 +206,7 @@ export class SchoolRoom {
     if (!univ) Z('office', -4.3, -8, 4.3, 3.3);
     Z('cafeteria', 10.6, -7.5, 11.9, 2.5);
     Z('cafeseat', 5.0, -7.2, 10.6, 0.2);
-    this.door = { x: 0, z: 7.2 };
+    this.door = { x: 0, z: 7.2, x0: -1.5, x1: 1.5 };
     // 큰 소리 아이콘 (떠드는 학생 등) 은 schoolgame에서
   }
 
@@ -226,18 +224,17 @@ export class SchoolRoom {
       const o = adult || !uniform ? {
         skin: SKINS[Math.floor(Math.random() * SKINS.length)], hair: HAIRS[Math.floor(Math.random() * 5)],
         shirt: SHIRTS[Math.floor(Math.random() * SHIRTS.length)], pants: PANTS[Math.floor(Math.random() * PANTS.length)], shoes: SHOES[Math.floor(Math.random() * SHOES.length)],
-        longHair: female && Math.random() < 0.7, bag: !adult && Math.random() < 0.4 ? 0x2a3a5a : null,
-      } : { skin: SKINS[Math.floor(Math.random() * 4)], hair: HAIRS[Math.floor(Math.random() * 4)], shirt: lv === 'high' ? 0x2a2e4a : 0x1f3a6a, pants: female ? 0x3a3e4a : 0x4a4e58, shoes: 0xf2f2f2, longHair: female && Math.random() < 0.8 };
+        hairStyle: female ? (Math.random() < 0.6 ? 'long' : 'bun') : (Math.random() < 0.3 ? 'spiky' : 'short'), bag: !adult && Math.random() < 0.4 ? 0x2a3a5a : null,
+      } : { skin: SKINS[Math.floor(Math.random() * 4)], hair: HAIRS[Math.floor(Math.random() * 4)], shirt: lv === 'high' ? 0x2a2e4a : 0x1f3a6a, pants: female ? 0x3a3e4a : 0x4a4e58, shoes: 0xf2f2f2, hairStyle: female ? 'long' : 'short', tie: lv === 'high' ? 0x8a2a2a : null };
       const p = createPed(o);
       p.root.scale.setScalar((adult ? 1 : scale) * (female ? 0.96 : 1));
       this.root.add(p.root);
       return p;
     };
     const sit = (p, x, z, face) => {
-      p.root.position.set(x, -0.42 * p.root.scale.y, z);
+      p.sit();
+      p.root.position.set(x, 0, z);
       p.root.rotation.y = face;
-      // 다리 앞으로 (앉은 자세)
-      p.root.children.forEach((c, i) => { if (i === 1 || i === 3) c.rotation.x = -1.45; });
       p.seated = true;
     };
     if (period === 'class' || period === 'exam') {
@@ -290,8 +287,9 @@ export class SchoolRoom {
         pos.x = nx + dx / d * r; pos.z = nz + dz / d * r;
       }
     }
+    const inDoor = Math.abs(pos.x) < 1.5 - r;
     pos.x = Math.max(-W / 2 + r, Math.min(W / 2 - r, pos.x));
-    pos.z = Math.max(-D / 2 + r, Math.min(D / 2 - 0.3, pos.z));
+    pos.z = Math.max(-D / 2 + r, Math.min(inDoor ? D / 2 + 1.5 : D / 2 - 0.3, pos.z));
     // 의자에 앉은 NPC
     for (const n of this.npcs) {
       const q = n.p.root.position, dx = pos.x - q.x, dz = pos.z - q.z, d = Math.hypot(dx, dz);
@@ -320,7 +318,6 @@ export class SchoolRoom {
       const dot = camera.position.x * nx + camera.position.z * nz;
       w.visible = dot < (nx ? W / 2 : D / 2) + 0.5;
     }
-    this.skyPlane.material.color.setHSL(0.57, 0.6, 0.85 - night * 0.7);
-    this.sun.intensity = 0.4 + (1 - night) * 1.0;
+
   }
 }

@@ -123,13 +123,9 @@ export class Interior {
     this.scene.background = new THREE.Color(0x1b2027);
     this.root = new THREE.Group(); this.scene.add(this.root);
     this.items = [];
-    this.hemi = new THREE.HemisphereLight(0xfff4e6, 0x504438, 0.7);
-    this.sunL = new THREE.DirectionalLight(0xfff0dc, 1.2);
-    this.sunL.castShadow = true; this.sunL.shadow.mapSize.set(1024, 1024);
-    const sc = this.sunL.shadow.camera; sc.left = -12; sc.right = 12; sc.top = 12; sc.bottom = -12; sc.near = 0.5; sc.far = 40;
-    this.sunL.shadow.bias = -0.0005;
-    this.ceil = new THREE.PointLight(0xffd9a8, 0, 18, 1.6);
-    this.scene.add(this.hemi, this.sunL, this.sunL.target, this.ceil);
+    // 실제 맵 안에서는 도시 조명을 그대로 씀 (별도 조명 없음)
+    const dummy = () => ({ intensity: 0, position: new THREE.Vector3(), target: { position: new THREE.Vector3() } });
+    this.hemi = dummy(); this.sunL = dummy(); this.ceil = dummy();
     this.lampLights = [];
     this.floorTex = T.floorWood();
   }
@@ -197,9 +193,16 @@ export class Interior {
     // 벽 스위치 (문 옆)
     trim.setColor(0xf6f6f6); trim.cbox(W / 2 - 0.35, 1.2, D / 2 - 0.02, 0.09, 0.13, 0.02);
     // 문
-    trim.setColor(0x6a4a30); trim.cbox(W / 2 - 1.1, 1.05, D / 2 - 0.02, 0.95, 2.1, 0.05);
-    trim.setColor(0xc0c0c0); trim.cbox(W / 2 - 0.75, 1.0, D / 2 - 0.06, 0.12, 0.03, 0.03);
+    trim.setColor(0x4a3426); trim.cbox(W / 2 - 1.6, 1.05, D / 2, 0.08, 2.1, 0.2); trim.cbox(W / 2 - 0.6, 1.05, D / 2, 0.08, 2.1, 0.2); trim.cbox(W / 2 - 1.1, 2.12, D / 2, 1.08, 0.08, 0.2);
     const tm = new THREE.Mesh(trim.build(), fMat); tm.receiveShadow = true; tm.castShadow = true; this.root.add(tm);
+    // 현관문 (경첩 기준으로 열림)
+    const dg = new GB(); dg.setColor(0x6a4a30); dg.cbox(0.47, 1.04, 0, 0.94, 2.08, 0.05); dg.setColor(0xc0c0c0); dg.cbox(0.82, 1.0, 0.05, 0.12, 0.03, 0.04);
+    this.doorPivot = new THREE.Group(); this.doorPivot.position.set(W / 2 - 1.57, 0, D / 2 - 0.03);
+    const dm = new THREE.Mesh(dg.build(), fMat); dm.castShadow = true; this.doorPivot.add(dm); this.root.add(this.doorPivot);
+    this.doorOpen = 0;
+    // 천장 조명 (발광 원판)
+    this.lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe2b8, emissiveIntensity: 0.6 });
+    const lampDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.06, 20), this.lampMat); lampDisc.position.set(0, 2.62, 0); this.root.add(lampDisc);
     this.kitchenBox = { x0: kx - 0.32, x1: kx + 0.32, z0: kz0, z1: kz0 + 2.4 };
     this.stove = { x: kx + 0.02, y: 0.96, z: kz0 + 1.6 };
     this.micro = { x: kx + 0.02, y: 1.1, z: kz0 + 1.12 };
@@ -208,10 +211,7 @@ export class Interior {
     this.buildCookware();
     this.door = { x: W / 2 - 1.1, z: D / 2 - 0.6 };
     // 창밖 풍경
-    const view = this.makeView(homeId, W);
-    view.position.set(0, 0, -D / 2 - 0.35);
-    this.root.add(view);
-    this.view = view;
+    this.view = null;
     // 천장등
     this.ceil.position.set(0, 2.5, 0);
     this.sunL.position.set(-3, 8, -D / 2 - 6);
@@ -323,8 +323,16 @@ export class Interior {
         pos.x = nx + dx / d * r; pos.z = nz + dz / d * r;
       }
     }
+    const inDoor = this.walkIn && pos.x > this.W / 2 - 1.55 + r * 0.6 && pos.x < this.W / 2 - 0.65 - r * 0.6;
     pos.x = Math.max(-this.W / 2 + r, Math.min(this.W / 2 - r, pos.x));
-    pos.z = Math.max(-this.D / 2 + r, Math.min(this.D / 2 - r, pos.z));
+    pos.z = Math.max(-this.D / 2 + r, Math.min(inDoor ? this.D / 2 + 1.5 : this.D / 2 - r, pos.z));
+  }
+  // 현관문 열고 닫기
+  updateDoor(dt, pos) {
+    if (!this.doorPivot) return;
+    const near = Math.hypot(pos.x - this.door.x, pos.z - (this.D / 2)) < 1.8;
+    this.doorOpen = THREE.MathUtils.clamp((this.doorOpen || 0) + (near ? dt * 3 : -dt * 2), 0, 1);
+    this.doorPivot.rotation.y = -this.doorOpen * 1.5;
   }
 
   buildCookware() {
@@ -353,7 +361,7 @@ export class Interior {
     this.foodDisc.visible = false;
     this.flame = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 6, 20).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3a7aff, transparent: true, opacity: 0.9 }));
     this.flame.position.set(st.x, st.y + 0.01, st.z);
-    this.flameLight = new THREE.PointLight(0x5a8aff, 0, 1.5);
+    this.flameLight = new THREE.Object3D(); this.flameLight.intensity = 0;
     this.flameLight.position.set(st.x + 0.2, st.y + 0.2, st.z);
     g.add(pot, pan, bowlG, this.flame, this.flameLight, this.foodDisc);
     this.cookware = { pot, pan, bowl: bowlG };
@@ -424,9 +432,7 @@ export class Interior {
   }
 
   update(night, skyTop, skyHorizon, camera) {
-    this.viewSkyMat.color.copy(skyHorizon).lerp(skyTop, 0.4);
-    this.viewMat.emissiveIntensity = night * 1.4;
-    this.viewMat.color.setScalar(1 - night * 0.8);
+    if (this.lampMat) this.lampMat.emissiveIntensity = this.lightOn === false ? 0 : 0.6 + night * 1.6;
     this.ceil.intensity = this.lightOn === false ? 0 : 0.4 + night * 9;
     this.sunL.intensity = (1 - night) * 2.2 + 0.05;
     this.hemi.intensity = (this.lightOn === false ? 0.08 : 0.35) + (1 - night) * 0.5;
@@ -443,14 +449,5 @@ export class Interior {
   }
 
   // 스탠드 조명 실제 광원
-  refreshLamps() {
-    this.lampLights.forEach(l => this.scene.remove(l));
-    this.lampLights = [];
-    for (const m of this.items) {
-      if (m.userData.item.id !== 'lamp' || this.lampLights.length >= 2) continue;
-      const l = new THREE.PointLight(0xffc888, 3, 6, 1.8);
-      l.position.set(m.position.x, 1.5, m.position.z);
-      this.scene.add(l); this.lampLights.push(l);
-    }
-  }
+  refreshLamps() { /* 스탠드 조명은 발광 재질로만 표현 */ }
 }

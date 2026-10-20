@@ -1,182 +1,181 @@
 import * as THREE from 'three';
 import { GB } from './geo.js';
 
-const vcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
-const skinMat = () => vcMat;
+// ───────── 로블록스 R6 스타일 아바타 (키 1.75m) ─────────
+// 1 스터드 ≈ 0.336m · 몸통 2×2×1, 팔·다리 1×2×1, 머리 둥근 원기둥
+const U = 0.336;
+const TW = 2 * U, TH = 2 * U, TD = U;         // 몸통
+const LW = U, LH = 2 * U;                      // 팔·다리
+const HIP = LH;                                // 엉덩이 높이 0.672
+const NECK = HIP + TH;                         // 목 높이 1.344
 
-function cap(r, len, seg = 8) {
-  const g = new THREE.CapsuleGeometry(r, len, 4, seg);
-  return g;
+const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0 });
+let faceMats = null;
+function faceMat(kind) {
+  if (!faceMats) {
+    faceMats = {};
+    const mk = (draw) => {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const x = c.getContext('2d'); draw(x);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    };
+    const eyes = (x, h = 22) => { x.fillStyle = '#111'; x.beginPath(); x.ellipse(42, 54, 8, h / 2, 0, 0, 7); x.ellipse(86, 54, 8, h / 2, 0, 0, 7); x.fill(); };
+    faceMats.smile = mk((x) => { eyes(x); x.strokeStyle = '#111'; x.lineWidth = 7; x.lineCap = 'round'; x.beginPath(); x.arc(64, 70, 26, 0.25 * Math.PI, 0.75 * Math.PI); x.stroke(); });
+    faceMats.grin = mk((x) => { eyes(x, 18); x.fillStyle = '#111'; x.beginPath(); x.arc(64, 78, 24, 0, Math.PI); x.fill(); x.fillStyle = '#fff'; x.fillRect(46, 78, 36, 7); });
+    faceMats.calm = mk((x) => { x.strokeStyle = '#111'; x.lineWidth = 6; x.lineCap = 'round'; x.beginPath(); x.moveTo(34, 56); x.lineTo(50, 56); x.moveTo(78, 56); x.lineTo(94, 56); x.stroke(); x.beginPath(); x.arc(64, 72, 16, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke(); });
+    faceMats.wink = mk((x) => { x.fillStyle = '#111'; x.beginPath(); x.ellipse(42, 54, 8, 11, 0, 0, 7); x.fill(); x.strokeStyle = '#111'; x.lineWidth = 6; x.lineCap = 'round'; x.beginPath(); x.moveTo(78, 56); x.lineTo(94, 52); x.stroke(); x.beginPath(); x.arc(64, 70, 24, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke(); });
+  }
+  return faceMats[kind] || faceMats.smile;
+}
+const FACES = ['smile', 'grin', 'calm', 'wink'];
+
+function rbox(gb, w, h, d, x, y, z, r = 0.03) {
+  // 모서리를 살짝 깎은 블록 (로블록스 느낌)
+  const g = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
+  g.translate(x, y, z);
+  gb.addGeo(g);
 }
 
-// 플레이어용 상세 인체 (관절 분리)
-export function createHuman(o = {}) {
-  const skin = o.skin ?? 0xe8c4a0, hair = o.hair ?? 0x1e1712, shirt = o.shirt ?? 0x2c4a6e, pants = o.pants ?? 0x23262b, shoes = o.shoes ?? 0xf0f0f0, jacket = o.jacket;
-  const mk = (geo, color) => { const b = new GB(); b.setColor(color); b.addGeo(geo); return b.build(); };
-  const mat = vcMat;
+function partsGeo(o) {
+  const skin = o.skin, shirt = o.shirt, pants = o.pants, shoes = o.shoes ?? pants;
+  // 몸통
+  const torso = new GB();
+  torso.setColor(shirt); rbox(torso, TW, TH, TD, 0, HIP + TH / 2, 0);
+  if (o.jacket) { torso.setColor(o.jacket); rbox(torso, TW * 0.36, TH * 0.98, TD * 1.04, -TW * 0.32, HIP + TH / 2, 0); rbox(torso, TW * 0.36, TH * 0.98, TD * 1.04, TW * 0.32, HIP + TH / 2, 0); }
+  if (o.tie) { torso.setColor(o.tie); rbox(torso, 0.07, TH * 0.6, 0.02, 0, HIP + TH * 0.62, TD / 2 + 0.01); }
+  if (o.logo) { torso.setColor(o.logo); rbox(torso, 0.22, 0.12, 0.02, 0.1, HIP + TH * 0.72, TD / 2 + 0.01); }
+  if (o.bag) { torso.setColor(o.bag); rbox(torso, TW * 0.7, TH * 0.75, 0.16, 0, HIP + TH * 0.5, -TD / 2 - 0.08); }
+  // 머리 (둥근 원기둥) + 머리카락
+  const head = new GB();
+  head.setColor(skin);
+  const hr = 0.2, hh = 0.36;
+  head.addGeo(new THREE.CylinderGeometry(hr, hr, hh * 0.72, 18).translate(0, hh / 2, 0));
+  head.addGeo(new THREE.SphereGeometry(hr, 18, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.38, 1).translate(0, hh * 0.86, 0));
+  head.addGeo(new THREE.SphereGeometry(hr, 18, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(1, 0.38, 1).translate(0, hh * 0.14, 0));
+  head.addGeo(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 10).translate(0, -0.02, 0));
+  if (o.hair != null) {
+    head.setColor(o.hair);
+    const style = o.hairStyle || 'short';
+    head.addGeo(new THREE.SphereGeometry(hr * 1.08, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(1, 0.75, 1.02).translate(0, hh * 0.72, -0.01));
+    if (style === 'long') rbox(head, hr * 2.05, hh * 1.1, 0.12, 0, hh * 0.35, -hr * 0.62);
+    if (style === 'bun') head.addGeo(new THREE.SphereGeometry(0.09, 10, 8).translate(0, hh * 1.08, -0.1));
+    if (style === 'spiky') for (let k = 0; k < 6; k++) head.addGeo(new THREE.ConeGeometry(0.06, 0.12, 5).rotateZ((k - 2.5) * 0.25).translate((k - 2.5) * 0.06, hh * 1.02, -0.02));
+  }
+  if (o.hat) {
+    head.setColor(o.hat);
+    head.addGeo(new THREE.CylinderGeometry(hr * 1.1, hr * 1.12, 0.12, 18).translate(0, hh * 0.95, 0));
+    rbox(head, hr * 1.6, 0.03, 0.16, 0, hh * 0.9, hr + 0.06);
+  }
+  // 팔 (위쪽 어깨가 회전축)
+  const arm = new GB(); arm.setColor(o.sleeve ?? shirt); rbox(arm, LW, LH * 0.62, LW, 0, -LH * 0.31, 0);
+  arm.setColor(skin); rbox(arm, LW * 0.98, LH * 0.38, LW * 0.98, 0, -LH * 0.81, 0);
+  // 다리 (엉덩이가 회전축)
+  const leg = new GB(); leg.setColor(pants); rbox(leg, LW, LH * 0.84, LW, 0, -LH * 0.42, 0);
+  leg.setColor(shoes); rbox(leg, LW * 1.02, LH * 0.16, LW * 1.06, 0, -LH * 0.92, 0.01);
+  return { torso: torso.build(), head: head.build(), arm: arm.build(), leg: leg.build() };
+}
+
+const geoCache = new Map();
+function getParts(o) {
+  const key = JSON.stringify(o);
+  if (!geoCache.has(key)) geoCache.set(key, partsGeo(o));
+  return geoCache.get(key);
+}
+
+// 공통 리그
+function rig(o, shadow) {
+  const g = getParts(o);
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
-  const mesh = (g) => { const m = new THREE.Mesh(g, mat); m.castShadow = true; return m; };
-
-  // 골반 + 몸통
-  const hipsG = new GB(); hipsG.setColor(pants);
-  hipsG.addGeo(new THREE.CylinderGeometry(0.15, 0.16, 0.2, 10).translate(0, 0.98, 0).scale(1, 1, 0.75));
-  const torso = new GB(); torso.setColor(jacket ?? shirt);
-  const tg = new THREE.CylinderGeometry(0.2, 0.155, 0.5, 12); tg.scale(1, 1, 0.62); tg.translate(0, 1.32, 0);
-  torso.addGeo(tg);
-  const sh = new THREE.SphereGeometry(0.2, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2); sh.scale(1, 0.35, 0.62); sh.translate(0, 1.565, 0);
-  torso.addGeo(sh);
-  if (jacket) { torso.setColor(shirt); const v = new THREE.BoxGeometry(0.1, 0.42, 0.02); v.translate(0, 1.34, 0.125); torso.addGeo(v); }
-  torso.setColor(skin);
-  torso.addGeo(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 8).translate(0, 1.63, 0));
-  const torsoMesh = mesh(torso.build());
-  const hipsMesh = mesh(hipsG.build());
-  body.add(torsoMesh, hipsMesh);
-
-  // 머리
-  const headPivot = new THREE.Group(); headPivot.position.set(0, 1.66, 0); body.add(headPivot);
-  const head = new GB(); head.setColor(skin);
-  const hg = new THREE.SphereGeometry(0.105, 16, 12); hg.scale(0.92, 1.12, 1); hg.translate(0, 0.1, 0.005); head.addGeo(hg);
-  head.addGeo(new THREE.SphereGeometry(0.022, 6, 4).translate(0.1, 0.1, 0)); head.addGeo(new THREE.SphereGeometry(0.022, 6, 4).translate(-0.1, 0.1, 0));
-  head.addGeo(new THREE.ConeGeometry(0.018, 0.04, 6).rotateX(Math.PI / 2).translate(0, 0.085, 0.112));
-  head.setColor(0x111111);
-  head.addGeo(new THREE.SphereGeometry(0.012, 6, 4).translate(0.035, 0.115, 0.095));
-  head.addGeo(new THREE.SphereGeometry(0.012, 6, 4).translate(-0.035, 0.115, 0.095));
-  head.setColor(hair);
-  const hairG = new THREE.SphereGeometry(0.112, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55); hairG.scale(0.95, 1.1, 1.04); hairG.translate(0, 0.115, -0.006);
-  head.addGeo(hairG);
-  if (o.longHair) { const lh = new THREE.CylinderGeometry(0.1, 0.11, 0.24, 12, 1, true, Math.PI * 0.6, Math.PI * 1.8); lh.translate(0, 0.02, -0.01); head.addGeo(lh); }
-  head.setColor(0x7a3a30);
-  head.addGeo(new THREE.BoxGeometry(0.04, 0.008, 0.01).translate(0, 0.045, 0.104));
-  headPivot.add(mesh(head.build()));
-
-  // 팔
-  const arms = [];
+  const mk = (geo) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; m.receiveShadow = shadow; return m; };
+  body.add(mk(g.torso));
+  const headPivot = new THREE.Group(); headPivot.position.set(0, NECK, 0); body.add(headPivot);
+  headPivot.add(mk(g.head));
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), faceMat(o.face || 'smile'));
+  face.position.set(0, 0.17, 0.201); headPivot.add(face);
+  const arms = [], legs = [];
   for (const s of [-1, 1]) {
-    const shoulder = new THREE.Group(); shoulder.position.set(s * 0.215, 1.52, 0); body.add(shoulder);
-    const ug = new GB(); ug.setColor(jacket ?? shirt);
-    ug.addGeo(cap(0.05, 0.22).translate(0, -0.14, 0));
-    const upper = mesh(ug.build()); shoulder.add(upper);
-    const elbow = new THREE.Group(); elbow.position.set(0, -0.29, 0); shoulder.add(elbow);
-    const lg = new GB(); lg.setColor(o.shortSleeve ? skin : (jacket ?? shirt));
-    lg.addGeo(cap(0.042, 0.2).translate(0, -0.12, 0));
-    lg.setColor(skin); lg.addGeo(new THREE.SphereGeometry(0.045, 8, 6).scale(0.8, 1.1, 0.5).translate(0, -0.28, 0));
-    elbow.add(mesh(lg.build()));
-    shoulder.rotation.z = s * 0.08;
+    const shoulder = new THREE.Group(); shoulder.position.set(s * (TW / 2 + LW / 2), NECK - 0.02, 0); body.add(shoulder);
+    shoulder.add(mk(g.arm));
+    const elbow = new THREE.Group(); shoulder.add(elbow);       // R6는 팔꿈치가 없음 (API 호환용)
     arms.push({ shoulder, elbow });
-  }
-  // 다리
-  const legs = [];
-  for (const s of [-1, 1]) {
-    const hip = new THREE.Group(); hip.position.set(s * 0.09, 0.95, 0); body.add(hip);
-    const tg2 = new GB(); tg2.setColor(pants); tg2.addGeo(cap(0.072, 0.32).translate(0, -0.22, 0));
-    hip.add(mesh(tg2.build()));
-    const knee = new THREE.Group(); knee.position.set(0, -0.44, 0); hip.add(knee);
-    const sg = new GB(); sg.setColor(pants); sg.addGeo(cap(0.058, 0.33).translate(0, -0.21, 0));
-    sg.setColor(shoes); sg.addGeo(new THREE.BoxGeometry(0.1, 0.07, 0.24).translate(0, -0.45, 0.045));
-    sg.setColor(0x2a2a2a); sg.addGeo(new THREE.BoxGeometry(0.105, 0.02, 0.25).translate(0, -0.48, 0.045));
-    knee.add(mesh(sg.build()));
+    const hip = new THREE.Group(); hip.position.set(s * LW / 2, HIP, 0); body.add(hip);
+    hip.add(mk(g.leg));
+    const knee = new THREE.Group(); hip.add(knee);
     legs.push({ hip, knee });
   }
-  // 그림자 받기
-  root.traverse(m => { if (m.isMesh) m.receiveShadow = true; });
+  return { root, body, headPivot, arms, legs };
+}
 
+// 플레이어용
+export function createHuman(o = {}) {
+  const opts = { skin: o.skin ?? 0xf2c49b, hair: o.hair ?? 0x2a1d14, hairStyle: o.hairStyle || 'short', shirt: o.shirt ?? 0x2f6fd6, pants: o.pants ?? 0x2a2f38, shoes: o.shoes ?? 0x1c1c1c, jacket: o.jacket, face: o.face || 'smile', logo: o.logo };
+  const r = rig(opts, true);
+  const { root, body, arms, legs } = r;
   let phase = 0;
   const api = {
-    root, body, headPivot, arms, legs,
-    pose: 'stand',
+    ...r, pose: 'stand', carry: false, work: false,
     animate(dt, speed, run) {
       if (api.pose !== 'stand') return;
       const moving = speed > 0.2;
-      const freq = run ? 11 : 7.6;
-      if (moving) phase += dt * freq * Math.min(1.2, speed / (run ? 5.5 : 1.9));
-      const amp = moving ? (run ? 0.85 : 0.5) * Math.min(1, speed / 1.2) : 0;
-      const target = (a, b) => a + (b - a) * Math.min(1, dt * 12);
+      phase += dt * (run ? 11 : 7.5) * Math.min(1.3, speed / (run ? 5 : 1.9));
+      const amp = moving ? (run ? 1.0 : 0.75) * Math.min(1, speed / 1.2) : 0;
       const sw = Math.sin(phase) * amp;
-      legs[0].hip.rotation.x = target(legs[0].hip.rotation.x, sw);
-      legs[1].hip.rotation.x = target(legs[1].hip.rotation.x, -sw);
-      legs[0].knee.rotation.x = target(legs[0].knee.rotation.x, Math.max(0, Math.sin(phase + 1.6)) * amp * 1.5 + (moving ? 0.05 : 0));
-      legs[1].knee.rotation.x = target(legs[1].knee.rotation.x, Math.max(0, Math.sin(phase + 1.6 + Math.PI)) * amp * 1.5 + (moving ? 0.05 : 0));
-      arms[0].shoulder.rotation.x = target(arms[0].shoulder.rotation.x, -sw * 0.8);
-      arms[1].shoulder.rotation.x = target(arms[1].shoulder.rotation.x, sw * 0.8);
-      arms[0].elbow.rotation.x = target(arms[0].elbow.rotation.x, -(run ? 1.4 : 0.25) * (moving ? 1 : 0.4));
-      arms[1].elbow.rotation.x = target(arms[1].elbow.rotation.x, -(run ? 1.4 : 0.25) * (moving ? 1 : 0.4));
-      if (api.carry) for (const a of arms) { a.shoulder.rotation.x = -1.05; a.elbow.rotation.x = -0.55; }
-      if (api.work) { arms[1].shoulder.rotation.x = -0.9 + Math.sin(performance.now() / 120) * 0.25; arms[1].elbow.rotation.x = -0.8; arms[0].shoulder.rotation.x = -0.7; arms[0].elbow.rotation.x = -0.7; }
-      const t = performance.now() / 1000;
-      body.position.y = moving ? Math.abs(Math.cos(phase)) * (run ? 0.07 : 0.035) - (run ? 0.04 : 0.01) : Math.sin(t * 2) * 0.004;
-      body.rotation.x = target(body.rotation.x, run && moving ? 0.18 : 0.02);
-      body.rotation.y = moving ? Math.sin(phase) * 0.06 : 0;
+      const k = Math.min(1, dt * 14);
+      const to = (a, b) => a + (b - a) * k;
+      legs[0].hip.rotation.x = to(legs[0].hip.rotation.x, sw);
+      legs[1].hip.rotation.x = to(legs[1].hip.rotation.x, -sw);
+      let a0 = -sw, a1 = sw;
+      if (api.carry) { a0 = a1 = -1.4; }
+      if (api.work) { a1 = -1.2 + Math.sin(performance.now() / 110) * 0.35; a0 = -0.9; }
+      arms[0].shoulder.rotation.x = to(arms[0].shoulder.rotation.x, a0);
+      arms[1].shoulder.rotation.x = to(arms[1].shoulder.rotation.x, a1);
+      // 로블록스 기본 대기 동작: 살짝 숨쉬기
+      body.position.y = moving ? Math.abs(Math.cos(phase)) * 0.03 : Math.sin(performance.now() / 600) * 0.006;
+      body.rotation.x = 0;
     },
     setPose(p) {
       api.pose = p;
-      if (p === 'stand') { body.rotation.set(0, 0, 0); root.rotation.x = 0; body.position.set(0, 0, 0); return; }
-      if (p === 'sit') {
-        for (const l of legs) { l.hip.rotation.x = -1.5; l.knee.rotation.x = 1.5; }
-        for (const a of arms) { a.shoulder.rotation.x = -0.4; a.elbow.rotation.x = -0.6; }
-        body.position.y = -0.45;
-      }
-      if (p === 'lie') {
-        for (const l of legs) { l.hip.rotation.x = 0; l.knee.rotation.x = 0.05; }
-        for (const a of arms) { a.shoulder.rotation.x = 0; a.elbow.rotation.x = 0; }
-        body.rotation.x = -Math.PI / 2; body.position.set(0, 0.12, 0.88);
-      }
+      body.rotation.set(0, 0, 0); body.position.set(0, 0, 0);
+      for (const l of legs) l.hip.rotation.set(0, 0, 0);
+      for (const a of arms) a.shoulder.rotation.set(0, 0, 0);
+      if (p === 'sit') { for (const l of legs) l.hip.rotation.x = -Math.PI / 2; body.position.y = -HIP + 0.46; for (const a of arms) a.shoulder.rotation.x = -0.35; }
+      if (p === 'lie') { body.rotation.x = -Math.PI / 2; body.position.set(0, 0.17, NECK * 0.62); }
     },
   };
   return api;
 }
 
-// 보행자용 가벼운 인체 (5 드로우콜)
-const pedGeoCache = new Map();
-export function pedVariant(o) {
-  const key = JSON.stringify(o);
-  if (pedGeoCache.has(key)) return pedGeoCache.get(key);
-  const b = new GB();
-  b.setColor(o.pants); b.addGeo(new THREE.CylinderGeometry(0.15, 0.16, 0.2, 8).translate(0, 0.98, 0).scale(1, 1, 0.75));
-  b.setColor(o.shirt);
-  const tg = new THREE.CylinderGeometry(0.2, 0.155, 0.52, 10); tg.scale(1, 1, 0.62); tg.translate(0, 1.33, 0); b.addGeo(tg);
-  b.setColor(o.skin);
-  const hg = new THREE.SphereGeometry(0.105, 10, 8); hg.scale(0.92, 1.12, 1); hg.translate(0, 1.76, 0); b.addGeo(hg);
-  b.addGeo(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 6).translate(0, 1.63, 0));
-  b.setColor(o.hair);
-  const hair = new THREE.SphereGeometry(0.112, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55); hair.scale(0.95, 1.1, 1.04); hair.translate(0, 1.775, -0.006); b.addGeo(hair);
-  if (o.longHair) b.addGeo(new THREE.CylinderGeometry(0.1, 0.11, 0.26, 10, 1, true).translate(0, 1.66, -0.02));
-  if (o.bag) { b.setColor(o.bag); b.addGeo(new THREE.BoxGeometry(0.28, 0.34, 0.12).translate(0, 1.32, -0.18)); }
-  const torso = b.build();
-  const leg = new GB(); leg.setColor(o.pants); leg.addGeo(cap(0.066, 0.75).translate(0, -0.45, 0));
-  leg.setColor(o.shoes); leg.addGeo(new THREE.BoxGeometry(0.1, 0.07, 0.24).translate(0, -0.9, 0.045));
-  const arm = new GB(); arm.setColor(o.shirt); arm.addGeo(cap(0.048, 0.48).translate(0, -0.28, 0));
-  arm.setColor(o.skin); arm.addGeo(new THREE.SphereGeometry(0.045, 6, 4).translate(0, -0.56, 0));
-  const v = { torso, leg: leg.build(), arm: arm.build() };
-  pedGeoCache.set(key, v);
-  return v;
-}
-
+// 행인·손님·학생 (그림자 없음, 가벼움)
 export function createPed(o) {
-  const v = pedVariant(o);
-  const root = new THREE.Group();
-  const t = new THREE.Mesh(v.torso, vcMat); root.add(t);
-  const legs = [], arms = [];
-  for (const s of [-1, 1]) {
-    const l = new THREE.Mesh(v.leg, vcMat); l.position.set(s * 0.09, 0.95, 0); root.add(l); legs.push(l);
-    const a = new THREE.Mesh(v.arm, vcMat); a.position.set(s * 0.215, 1.52, 0); a.rotation.z = s * 0.08; root.add(a); arms.push(a);
-  }
-  t.castShadow = true;
+  const opts = { ...o };
+  if (opts.longHair && !opts.hairStyle) opts.hairStyle = 'long';
+  delete opts.longHair;
+  if (!opts.face) opts.face = FACES[Math.floor(Math.random() * FACES.length)];
+  const r = rig(opts, false);
+  r.body.children[0].castShadow = true;
   let phase = Math.random() * 6;
   return {
-    root,
+    root: r.root,
     animate(dt, speed) {
-      phase += dt * speed * 4.2;
-      const amp = speed > 0.1 ? 0.45 : 0;
+      phase += dt * speed * 4.4;
+      const amp = speed > 0.1 ? 0.7 : 0;
       const sw = Math.sin(phase) * amp;
-      legs[0].rotation.x = sw; legs[1].rotation.x = -sw;
-      arms[0].rotation.x = -sw * 0.7; arms[1].rotation.x = sw * 0.7;
+      r.legs[0].hip.rotation.x = sw; r.legs[1].hip.rotation.x = -sw;
+      r.arms[0].shoulder.rotation.x = -sw; r.arms[1].shoulder.rotation.x = sw;
+    },
+    sit() {
+      for (const l of r.legs) l.hip.rotation.x = -Math.PI / 2;
+      r.body.position.y = -HIP + 0.46;
     },
   };
 }
 
-export const SKINS = [0xf1d0b0, 0xe8c4a0, 0xd9ad85, 0xc8966c, 0x9a6a48, 0xf5dcc4];
-export const HAIRS = [0x1a1410, 0x2a1d14, 0x3d2a1a, 0x111111, 0x5a3a22, 0x8a6a4a, 0xb0b0b0];
-export const SHIRTS = [0xf2f2f2, 0x1d2a3a, 0x6a2a2a, 0x2a5a3a, 0xc8a87a, 0x3a3a3a, 0x8aa0c0, 0xd47a5a, 0x5a4a7a, 0xe0d0b0, 0x222222, 0x9a2a40];
-export const PANTS = [0x23262b, 0x2a3550, 0x5a5048, 0x1a1a1a, 0x3a4a5a, 0x7a6a58, 0x30343a];
-export const SHOES = [0xf0f0f0, 0x222222, 0x5a3a22, 0x8a8a8a, 0xb02020];
+// 로블록스 느낌의 쨍한 색들
+export const SKINS = [0xf2c49b, 0xe8b48a, 0xd9a07a, 0xc68863, 0x9a6648, 0xf6d9b8, 0xffd25a];
+export const HAIRS = [0x1a1410, 0x2a1d14, 0x4a2e1a, 0x111111, 0x6a4024, 0xc89a5a, 0xd8d8d8, 0x7a2a1a];
+export const SHIRTS = [0xf2f2f2, 0x1f3a6a, 0xd63a3a, 0x2f9a4a, 0xf2c230, 0x2a2a2a, 0x2f6fd6, 0xff7a3a, 0x8a4ad6, 0xf27ab0, 0x1fb8c8, 0x6a2a2a];
+export const PANTS = [0x23262b, 0x2a3f6a, 0x5a5048, 0x1a1a1a, 0x3a6aa0, 0x7a6a58, 0x30343a, 0xe8e2d0];
+export const SHOES = [0xf2f2f2, 0x1c1c1c, 0x5a3a22, 0x8a8a8a, 0xd02020];
+export const HAIR_STYLES = ['short', 'short', 'long', 'bun', 'spiky'];

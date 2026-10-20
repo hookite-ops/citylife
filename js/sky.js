@@ -3,17 +3,17 @@ import { stars as starsTex } from './textures.js';
 
 // 시간대별 색 (시각, 하늘 위, 지평선, 햇빛, 햇빛 세기, 반구광 세기, 안개)
 const KEYS = [
-  [0, 0x05070f, 0x0b1222, 0x6f86c8, 0.12, 0.55, 0x0a0f1c],
-  [4.5, 0x070a16, 0x141a30, 0x6f86c8, 0.12, 0.55, 0x0e1424],
-  [5.6, 0x1c2550, 0x8a5a6a, 0xff9a60, 0.3, 0.35, 0x5a4a5a],
-  [6.4, 0x3d63a8, 0xf0a070, 0xffb070, 1.1, 0.6, 0xc49a88],
-  [8, 0x3f7fd0, 0xbcd6ea, 0xfff0d8, 2.4, 0.9, 0xb9cfe0],
-  [12, 0x3a7ad6, 0xc5dcef, 0xfffaf0, 2.9, 1.0, 0xc2d6e8],
-  [16.5, 0x3c78cc, 0xc6d4e2, 0xfff0d8, 2.5, 0.9, 0xc0d0de],
-  [18.4, 0x3b5a9a, 0xf2a46a, 0xff9550, 1.3, 0.65, 0xd9a07c],
-  [19.2, 0x23295a, 0xc0606a, 0xff6a40, 0.45, 0.42, 0x6a4a5a],
-  [20.2, 0x0a0e22, 0x1c2242, 0x6f86c8, 0.13, 0.56, 0x141a2c],
-  [24, 0x05070f, 0x0b1222, 0x6f86c8, 0.12, 0.55, 0x0a0f1c],
+  [0, 0x0a1230, 0x1a2a55, 0x8aa0e0, 0.18, 0.75, 0x16224a],
+  [4.5, 0x0c1638, 0x22305e, 0x8aa0e0, 0.18, 0.75, 0x1a2852],
+  [5.6, 0x2a3a78, 0xb07080, 0xffa060, 0.4, 0.6, 0x7a6278],
+  [6.4, 0x3a7ae0, 0xffb488, 0xffc080, 1.4, 0.9, 0xd8b0a0],
+  [8, 0x2f86ff, 0xa6d6ff, 0xfff4e0, 2.8, 1.25, 0xb4dcff],
+  [12, 0x2a84ff, 0xaedcff, 0xffffff, 3.1, 1.35, 0xbce0ff],
+  [16.5, 0x2c82f6, 0xb0d8f6, 0xfff4e0, 2.8, 1.25, 0xb8dcf8],
+  [18.4, 0x3a62c0, 0xffac70, 0xffa060, 1.6, 0.9, 0xf0b088],
+  [19.2, 0x2a3480, 0xd86a78, 0xff7a50, 0.6, 0.7, 0x7a5a78],
+  [20.2, 0x101a44, 0x26386c, 0x8aa0e0, 0.2, 0.78, 0x1c2a58],
+  [24, 0x0a1230, 0x1a2a55, 0x8aa0e0, 0.18, 0.75, 0x16224a],
 ];
 
 const ca = new THREE.Color(), cb = new THREE.Color();
@@ -75,7 +75,7 @@ export class Sky {
     scene.add(this.sun, this.sun.target);
     this.hemi = new THREE.HemisphereLight(0xbcd6ff, 0x4a4238, 0.8);
     scene.add(this.hemi);
-    scene.fog = new THREE.Fog(0xc2d6e8, 80, 1500);
+    scene.fog = new THREE.Fog(0xc2d6e8, 160, 2800);
 
     // 환경맵(반사)
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -125,7 +125,7 @@ export class Sky {
     this.hemi.color.copy(this.uniforms.top.value).lerp(new THREE.Color(0xffffff), 0.45);
     this.hemi.groundColor.set(night > 0.5 ? 0x1a1814 : 0x4a4238);
     this.scene.fog.color.copy(lerpKey(h, 6));
-    this.scene.fog.far = night > 0.5 ? 1100 : 1500;
+    this.scene.fog.far = night > 0.5 ? 2000 : 2800;
 
     // 그림자 카메라는 플레이어를 따라감 (텍셀 단위로 스냅해서 깜빡임 방지)
     const R = this.shadowRange || 60;

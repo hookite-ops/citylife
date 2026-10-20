@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GB } from './geo.js';
-import { N, ROAD, ROADS, STOP, LANE1, LANE2, hasEdge, segLen } from './config.js';
+import { N, ROAD, ROADS, STOP, LANE1, LANE2, hasEdge, segLen, nearestRoad } from './config.js';
 
 // ───────── 차량 모델 ─────────
 const PROFILES = {
@@ -161,7 +161,11 @@ export class Traffic {
   spawn(far) {
     const keys = Object.keys(DIRS);
     for (let tries = 0; tries < 30; tries++) {
-      const a = Math.floor(Math.random() * (N + 1)), b = Math.floor(Math.random() * (N + 1));
+      let a = Math.floor(Math.random() * (N + 1)), b = Math.floor(Math.random() * (N + 1));
+      if (this.focus) {
+        a = Math.max(0, Math.min(N, nearestRoad(this.focus.x) + Math.floor(Math.random() * 7) - 3));
+        b = Math.max(0, Math.min(N, nearestRoad(this.focus.z) + Math.floor(Math.random() * 7) - 3));
+      }
       const dk = keys[Math.floor(Math.random() * 4)], d = DIRS[dk];
       if (!hasEdge(a, b, d)) continue;
       const lane = Math.random() < 0.5 ? 1 : 2;
@@ -225,8 +229,16 @@ export class Traffic {
     car.ja = ja; car.jb = jb;
   }
 
+  reseed(p) { this.focus = p.clone(); const n = this.cars.length; this.setCount(0); this.setCount(n); }
   update(dt, playerPos, playerCar, night, camPos) {
     const cars = this.cars;
+    this.focus = playerCar ? playerCar.pos : playerPos;
+    this.farT = (this.farT || 0) + dt;
+    if (this.farT > 0.5 && this.focus) {
+      this.farT = 0;
+      let n = 0;
+      for (const c of cars.slice()) if (c.pos.distanceTo(this.focus) > 560) { this.respawn(c, camPos || this.focus); if (++n >= 3) break; }
+    }
     // 1) 앞차/장애물 감지
     for (const c of cars) {
       const fx = Math.sin(c.heading), fz = Math.cos(c.heading);

@@ -1,13 +1,13 @@
 // ───────── 한빛신도시 마스터플랜 ─────────
-// 가로·세로 8개 블록, 도로 9줄. 블록 크기는 가운데로 갈수록 커짐 (단위 m)
-export const N = 8;
+// 실제 신도시 크기: 가로·세로 12개 블록(약 2.9km), 블록 하나 180~240m (단위 m)
+export const N = 12;
 export const ROAD = 20;          // 도로 폭: 중앙분리대 2 + 편도 2차로 7 + 갓길 1
 export const MEDIAN = 1.0;       // 중앙분리대 반폭
 export const SIDEWALK = 4;
 export const LANE1 = 2.75;       // 1차로 중심 (도로 중심 기준)
 export const LANE2 = 6.25;       // 2차로 중심
 export const STOP = ROAD / 2 + 4.5; // 교차로 중심에서 정지선까지
-export const BLOCK_W = [104, 112, 116, 124, 124, 116, 112, 104];
+export const BLOCK_W = [180, 240, 220, 240, 200, 240, 240, 200, 240, 220, 240, 180];
 export const ROADS = [];
 {
   const total = BLOCK_W.reduce((a, b) => a + b, 0) + N * ROAD;
@@ -15,11 +15,9 @@ export const ROADS = [];
   for (let k = 0; k < N; k++) ROADS.push(ROADS[k] + ROAD + BLOCK_W[k]);
 }
 export const HALF = ROADS[N];
-export const BLOCK = 120;        // (옛 코드 호환용 평균값)
-export const P = 140;
 
 // 호수공원 안쪽은 도로가 없음: v:k:s = x=ROADS[k] 세로도로의 s번째 구간, h:k:s = z=ROADS[k] 가로도로
-export const REMOVED = new Set(['v:4:3', 'v:4:4', 'h:4:3', 'h:4:4']);
+export const REMOVED = new Set(['v:6:5', 'v:6:6', 'h:6:5', 'h:6:6']);
 export function inNode(a, b) { return a >= 0 && a <= N && b >= 0 && b <= N; }
 export function hasEdge(a, b, d) {
   const na = a + d[0], nb = b + d[1];
@@ -73,9 +71,9 @@ export const CARS = [
 ];
 
 export const HOMES = [
-  { id: 'oneroom', name: '원룸', price: 0, w: 7, d: 8, desc: '작지만 내 공간' },
-  { id: 'apt', name: '투룸 아파트', price: 30000000, w: 12, d: 10, desc: '거실과 침실이 분리된 아파트' },
-  { id: 'pent', name: '펜트하우스', price: 200000000, w: 18, d: 14, desc: '통유리 창 너머 야경' },
+  { id: 'oneroom', name: '원룸', price: 0, w: 5.6, d: 6.4, desc: '9평 원룸 · 작지만 내 공간' },
+  { id: 'apt', name: '아파트 25평', price: 30000000, w: 9.6, d: 8.6, desc: '푸른숲 단지 12층 · 엘리베이터로 올라가요' },
+  { id: 'pent', name: '펜트하우스', price: 200000000, w: 16, d: 13, desc: '호수뷰 주상복합 꼭대기 층 · 통유리 야경' },
 ];
 
 export const FOODS = [

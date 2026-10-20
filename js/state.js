@@ -18,8 +18,8 @@ export function newState() {
     homes: ['oneroom'], home: 'oneroom',
     placed: {
       oneroom: [
-        { uid: 1, id: 'bed', x: -2.6, z: -2.75, rot: 0 },
-        { uid: 2, id: 'fridge', x: -3.05, z: 3.5, rot: 1 },
+        { uid: 1, id: 'bed', x: -2.15, z: -2.1, rot: 0 },
+        { uid: 2, id: 'fridge', x: -2.4, z: 2.55, rot: 1 },
       ],
       apt: [], pent: [],
     },
@@ -30,7 +30,7 @@ export function newState() {
     settings: { quality: null, sound: true },
     stats: { daysLived: 0 },
     tutorial: true,
-    mapVer: 2,
+    mapVer: 3,
   };
 }
 

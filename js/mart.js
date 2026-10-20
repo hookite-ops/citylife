@@ -60,23 +60,12 @@ export class MartRoom {
     this.stock = { chill: 1, drink: 1, ramen: 1, grocery: 1, snack: 1 };
     this.sections = [];
     this.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05 });
-    this.door = { x: 4.2, z: 5.5 };
+    this.door = { x: 4.2, z: 5.5, x0: 3.2, x1: 5.2 };
     this.lights();
     this.build();
   }
 
-  lights() {
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x8a8a84, 1.25);
-    const d = new THREE.DirectionalLight(0xffffff, 1.1);
-    d.position.set(4, 12, 6); d.castShadow = true;
-    d.shadow.mapSize.set(1024, 1024);
-    const sc = d.shadow.camera; sc.left = -10; sc.right = 10; sc.top = 10; sc.bottom = -10; sc.near = 1; sc.far = 40;
-    d.shadow.bias = -0.0006;
-    this.scene.add(this.hemi, d, d.target);
-    for (const [x, z] of [[-3, -2], [3, -2], [-3, 3], [3, 3]]) {
-      const p = new THREE.PointLight(0xf4f8ff, 6, 9, 1.6); p.position.set(x, 2.8, z); this.scene.add(p);
-    }
-  }
+  lights() { /* 실제 맵 안에서는 도시 조명을 그대로 씀 */ }
 
   wall(px, pz, qx, qz, y0, y1, mat) {
     const g = new GB(); g.wall(px, pz, qx, qz, y0, y1, 0, 1, 1);
@@ -279,7 +268,7 @@ export class MartRoom {
     // 흘린 음료 자국
     this.spillMat = new THREE.MeshStandardMaterial({ color: 0x6a3a1a, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
     // 직원 NPC (내가 근무 중이 아닐 때)
-    this.staff = createPed({ skin: 0xf1d0b0, hair: 0x1a1410, shirt: 0x1f8a4c, pants: 0x23262b, shoes: 0x222222 });
+    this.staff = createPed({ skin: 0xf2c49b, hair: 0x1a1410, shirt: 0x1f8a4c, pants: 0x23262b, shoes: 0x222222, face: 'smile', logo: 0xffffff });
     this.staff.root.position.set(-5.75, 0, 2.6); this.staff.root.rotation.y = Math.PI / 2;
     R.add(this.staff.root);
     // 김 (컵라면·도시락 연출용)
@@ -360,8 +349,9 @@ export class MartRoom {
         } else { pos.x = nx + dx / d * r; pos.z = nz + dz / d * r; }
       }
     }
+    const inDoor = pos.x > 3.25 + r && pos.x < 5.15 - r;
     pos.x = Math.max(-W / 2 + r, Math.min(W / 2 - r, pos.x));
-    pos.z = Math.max(-D / 2 + r, Math.min(D / 2 - 0.25, pos.z));
+    pos.z = Math.max(-D / 2 + r, Math.min(inDoor ? D / 2 + 1.5 : D / 2 - 0.25, pos.z));
   }
   zoneAt(pos) {
     let best = null;
@@ -390,7 +380,7 @@ export class MartRoom {
     const p = createPed({
       skin: SKINS[Math.floor(Math.random() * SKINS.length)], hair: HAIRS[Math.floor(Math.random() * HAIRS.length)],
       shirt: SHIRTS[Math.floor(Math.random() * SHIRTS.length)], pants: PANTS[Math.floor(Math.random() * PANTS.length)],
-      shoes: SHOES[Math.floor(Math.random() * SHOES.length)], longHair: female && Math.random() < 0.7,
+      shoes: SHOES[Math.floor(Math.random() * SHOES.length)], hairStyle: female ? (Math.random() < 0.6 ? 'long' : 'bun') : 'short',
       bag: Math.random() < 0.3 ? 0x2a2a2a : null,
     });
     p.root.scale.setScalar(female ? 0.94 : 1);
