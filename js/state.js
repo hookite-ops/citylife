@@ -30,6 +30,7 @@ export function newState() {
     settings: { quality: null, sound: true },
     stats: { daysLived: 0 },
     tutorial: true,
+    mapVer: 2,
   };
 }
 

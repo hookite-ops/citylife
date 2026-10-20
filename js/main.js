@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { HALF, ROAD, ROADS, P, STOP, LANE2, N, CARS, HOMES, FOODS, FURNITURE, OFFICE_RANKS, WAGE_MART, MIN_PER_SEC, won, blockRect } from './config.js';
-import { City, SPECIALS } from './city.js';
+import { HALF, ROAD, ROADS, STOP, LANE2, N, nearestRoad, blockIndex, CARS, HOMES, FOODS, FURNITURE, OFFICE_RANKS, WAGE_MART, MIN_PER_SEC, won, blockRect } from './config.js';
+import { City, SPECIALS, ZONES, ZONE_COLOR, lakeR } from './city.js';
 import { Sky } from './sky.js';
 import { Traffic, PlayerCar, DIRS, dirKey, right, buildCarMesh } from './vehicles.js';
 import { Peds } from './peds.js';
@@ -22,9 +22,9 @@ import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const DPR = window.devicePixelRatio || 1;
 const QUAL = {
-  low: { pr: Math.min(DPR, 1) * 0.85, shadow: 1024, range: 40, traffic: 16, peds: 16, shadows: false },
-  mid: { pr: Math.min(DPR, 1.35), shadow: 2048, range: 55, traffic: 28, peds: 30, shadows: true },
-  high: { pr: Math.min(DPR, 2), shadow: 2048, range: 80, traffic: 40, peds: 46, shadows: true },
+  low: { pr: Math.min(DPR, 1) * 0.85, shadow: 1024, range: 40, traffic: 22, peds: 22, shadows: false, near: 170 },
+  mid: { pr: Math.min(DPR, 1.35), shadow: 2048, range: 55, traffic: 36, peds: 36, shadows: true, near: 240 },
+  high: { pr: Math.min(DPR, 2), shadow: 2048, range: 80, traffic: 52, peds: 54, shadows: true, near: 330 },
 };
 
 let S = ST.load();
@@ -47,7 +47,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 setAniso(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2500);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.25, 2600);
 const audio = new Audio(); setAudio(audio);
 audio.setEnabled(S.settings.sound);
 
@@ -56,6 +56,8 @@ let room = null;          // 지금 들어가 있는 실내 (interior | mart | s
 let school, schoolGame, schoolEntrance = null;
 let martEntrance = null;  // 들어온 편의점 입구
 S.inventory.ing = S.inventory.ing || {};
+// 신도시로 지도가 바뀌면 예전 위치 정보는 버림
+if (S.mapVer !== 2) { S.player = null; S.carPos = null; S.waypoint = null; S.delivery = null; S.mapVer = 2; }
 if (S.inventory.food.ramen) { S.inventory.food.cupramen = (S.inventory.food.cupramen || 0) + S.inventory.food.ramen; delete S.inventory.food.ramen; }
 let pcar = null;        // 플레이어 소유 차량 (현재 선택된 차)
 let inCar = false;
@@ -80,15 +82,19 @@ async function boot() {
   city = new City(scene, quality);
   lt.textContent = '차와 사람들을 불러오는 중…'; await nextFrame();
   traffic = new Traffic(scene, city, QUAL[quality].traffic);
-  peds = new Peds(scene, QUAL[quality].peds);
+  city.setNearRadius(QUAL[quality].near);
+  peds = new Peds(scene, QUAL[quality].peds, (i, j) => ZONES[j][i] === 'L');
   // 주차된 차들
   const pc = [0xf2f2ee, 0x1a1c20, 0x8c9096, 0x2b3a55, 0x6b1a1a, 0xc8c2b0, 0x24303c];
   const types = ['sedan', 'hatch', 'suv', 'sedan', 'suv'];
   city.parkedSpots.forEach((p, k) => {
     const m = buildCarMesh(p.showroom ? ['sport', 'suv', 'sedan'][k % 3] : types[k % types.length], p.showroom ? [0xc0201a, 0x6b7b6a, 0x1d2b3a][k % 3] : pc[k % pc.length]);
-    m.root.position.set(p.x, 0.19, p.z); m.root.rotation.y = p.rot;
+    m.root.position.set(p.x, city.groundY(p.x, p.z) + 0.01, p.z); m.root.rotation.y = p.rot;
     scene.add(m.root);
-    city.colliders.push({ x0: p.x - m.W / 2 - 0.05, x1: p.x + m.W / 2 + 0.05, z0: p.z - m.L / 2, z1: p.z + m.L / 2, h: 1.4, soft: true });
+    if (p.noCollide) return;
+    const sx = Math.abs(Math.sin(p.rot)) > 0.5;
+    const hw = (sx ? m.L : m.W) / 2, hd = (sx ? m.W : m.L) / 2;
+    city.colliders.push({ x0: p.x - hw, x1: p.x + hw, z0: p.z - hd, z1: p.z + hd, h: 1.4, soft: true });
   });
   interior = new Interior(renderer);
   human = createHuman({ skin: 0xe9c6a2, hair: 0x1c1410, shirt: 0xf2f2f0, jacket: 0x2e3f57, pants: 0x2a2f38, shoes: 0xf4f4f4 });
@@ -138,6 +144,7 @@ function setQuality(q) {
   renderer.setPixelRatio(QUAL[q].pr);
   applyShadowQuality();
   traffic?.setCount(QUAL[q].traffic);
+  city?.setNearRadius(QUAL[q].near);
   peds?.setCount(QUAL[q].peds);
   setQualityButtons();
 }
@@ -162,11 +169,12 @@ async function startGame(fresh) {
     player.pos.set(S.player.x, 0, S.player.z);
     player.heading = S.player.h || 0;
   } else {
-    player.pos.set(home.x, 0, home.z + (home.z > 0 ? 1.5 : -1.5));
+    player.pos.set(home.x + home.nx * 1.5, 0, home.z + home.nz * 1.5);
     player.heading = home.face;
   }
   cam.yaw = player.heading + Math.PI;
-  city.collide(player.pos, 0.35);
+  city.collide(player.pos, 0.35, { walker: true });
+  city.warmup(player.pos);
   spawnPlayerCar();
   if (!fresh && S.player?.inCar && pcar) enterCar(true);
   if (!fresh && S.player?.inside) await enterHome(true);
@@ -248,12 +256,12 @@ function loop(now) {
   if (mode === 'title') {
     // 타이틀: 도시 위를 천천히 도는 카메라
     sky.update(ST.hour(S), new THREE.Vector3(0, 0, 0), dt);
-    city.update(dt, sky.night, elapsed);
+    city.update(dt, sky.night, elapsed, camera.position);
     traffic.update(dt, player.pos, null, sky.night, camera.position);
     peds.update(dt, player.pos, camera.position);
     const a = elapsed * 0.04;
-    camera.position.set(Math.cos(a) * 170, 62, Math.sin(a) * 170);
-    camera.lookAt(0, 18, 0);
+    camera.position.set(Math.cos(a) * 330, 120, Math.sin(a) * 330);
+    camera.lookAt(0, 20, 0);
     renderer.render(scene, camera);
     return;
   }
@@ -274,7 +282,7 @@ function loop(now) {
     const focus = inCar && pcar ? pcar.pos : player.pos;
     sky.update(hours, focus, dt);
     renderer.toneMappingExposure = 1 + sky.night * 0.45;
-    city.update(dt, sky.night, elapsed);
+    city.update(dt, sky.night, elapsed, camera.position);
     if (!paused) {
       if (inCar) updateDriving(dt); else updateWalking(dt);
     }
@@ -336,8 +344,8 @@ function persist() {
     const h = city.entrances.find(e => e.id === 'home');
     S.player = { x: S.player?.x ?? h.x, z: S.player?.z ?? h.z, h: S.player?.h ?? 0, inside: true };
   }
-  else if (mode === 'school' && schoolEntrance) S.player = { x: schoolEntrance.x, z: schoolEntrance.z - 1.4, h: schoolEntrance.face, inside: false };
-  else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x, z: martEntrance.z + (martEntrance.face === 0 ? 1.4 : -1.4), h: martEntrance.face, inside: false };
+  else if (mode === 'school' && schoolEntrance) S.player = { x: schoolEntrance.x + schoolEntrance.nx * 1.4, z: schoolEntrance.z + schoolEntrance.nz * 1.4, h: schoolEntrance.face, inside: false };
+  else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x + martEntrance.nx * 1.4, z: martEntrance.z + martEntrance.nz * 1.4, h: martEntrance.face, inside: false };
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
   ST.save(S);
@@ -372,7 +380,7 @@ function updateWalking(dt) {
   const fx = Math.sin(player.heading), fz = Math.cos(player.heading);
   player.pos.x += fx * player.speed * dt;
   player.pos.z += fz * player.speed * dt;
-  city.collide(player.pos, 0.35);
+  city.collide(player.pos, 0.35, { walker: true });
   traffic.collideWalker(player.pos);
   peds.collide(player.pos);
   if (pcar) collideWithParkedCar(player.pos);
@@ -430,7 +438,7 @@ function updateDriving(dt) {
 
 // 신호위반 단속 카메라
 function checkRedLight() {
-  const a = Math.round((pcar.pos.x + HALF) / P), b = Math.round((pcar.pos.z + HALF) / P);
+  const a = nearestRoad(pcar.pos.x), b = nearestRoad(pcar.pos.z);
   if (a < 0 || a > N || b < 0 || b > N) return;
   if (!city.cameras.has(a + ',' + b)) return;
   const J = { x: ROADS[a], z: ROADS[b] };
@@ -683,7 +691,7 @@ function checkGoals() {
 // ───────── 미니맵 ─────────
 const mini = $('mini'), mctx = mini.getContext('2d');
 function drawMinimap() {
-  const W = mini.width, R = W / 2, s = 0.9;
+  const W = mini.width, R = W / 2, s = 0.7;
   const p = inCar && pcar ? pcar.pos : player.pos;
   mctx.save();
   mctx.clearRect(0, 0, W, W);
@@ -691,11 +699,7 @@ function drawMinimap() {
   mctx.fillStyle = '#2b3138'; mctx.fillRect(0, 0, W, W);
   mctx.translate(R, R); mctx.rotate(cam.yaw); mctx.scale(s, s); mctx.translate(-p.x, -p.z);
   mctx.fillStyle = '#4a5260';
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
-    const r = blockRect(i, j);
-    mctx.fillStyle = (i === 1 && j === 1) ? '#3f6a3a' : '#59616e';
-    mctx.fillRect(r.x0, r.z0, 64, 64);
-  }
+  drawBlocks(mctx);
   mctx.fillStyle = '#7a8494';
   for (const c of city.colliders) if (!c.soft) mctx.fillRect(c.x0, c.z0, c.x1 - c.x0, c.z1 - c.z0);
   // 장소 아이콘
@@ -733,6 +737,19 @@ function drawMinimap() {
   mctx.fillText('N', R + Math.sin(cam.yaw) * (R - 11), R - Math.cos(cam.yaw) * (R - 11));
 }
 mini.addEventListener('click', () => openPhone('map'));
+function drawBlocks(ctx) {
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const z = ZONES[j][i];
+    const r = blockRect(i, j);
+    ctx.fillStyle = ZONE_COLOR[z] || '#59616e';
+    if (z === 'L') { const R0 = blockRect(3, 3), R1 = blockRect(4, 4); ctx.fillRect(R0.x0, R0.z0, R1.x1 - R0.x0, R1.z1 - R0.z0); continue; }
+    ctx.fillRect(r.x0, r.z0, r.w, r.d);
+  }
+  ctx.fillStyle = '#2f6a8a';
+  ctx.beginPath();
+  for (let k = 0; k <= 64; k++) { const th = k / 64 * Math.PI * 2, rr = lakeR(th); k ? ctx.lineTo(Math.cos(th) * rr, Math.sin(th) * rr) : ctx.moveTo(Math.cos(th) * rr, Math.sin(th) * rr); }
+  ctx.fill();
+}
 
 // ───────── 음식 ─────────
 function foodRows(where) {
@@ -1034,7 +1051,7 @@ function leaveRoom() {
   if (S.player) S.player.inside = false;
 }
 function placeAtEntrance(e) {
-  player.pos.set(e.x, 0.18, e.z + (e.face === 0 ? 1.4 : -1.4));
+  player.pos.set(e.x + (e.nx ?? 0) * 1.4, 0.18, e.z + (e.nz ?? 1) * 1.4);
   player.heading = e.face;
   cam.yaw = player.heading + Math.PI; cam.pitch = 0.3;
   city.collide(player.pos, 0.35);
@@ -1134,7 +1151,7 @@ function exitSchool() {
     busy = true;
     await fade(true);
     leaveRoom();
-    placeAtEntrance({ ...schoolEntrance, face: Math.PI });
+    placeAtEntrance(schoolEntrance);
     persist();
     await fade(false);
     busy = false;
@@ -1565,12 +1582,13 @@ function phoneMap() {
     <div id="placeList"></div>`;
   const cv = $('mapCanvas'), x = cv.getContext('2d');
   const s = 600 / (HALF * 2 + 40), o = 300;
+  const icoR = 13;
   x.fillStyle = '#2b3138'; x.fillRect(0, 0, 600, 600);
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const r = blockRect(i, j); x.fillStyle = (i === 1 && j === 1) ? '#3f6a3a' : '#59616e'; x.fillRect(o + r.x0 * s, o + r.z0 * s, 64 * s, 64 * s); }
+  x.save(); x.translate(o, o); x.scale(s, s); drawBlocks(x); x.restore();
   x.fillStyle = '#7a8494';
   for (const c of city.colliders) if (!c.soft) x.fillRect(o + c.x0 * s, o + c.z0 * s, (c.x1 - c.x0) * s, (c.z1 - c.z0) * s);
-  x.font = '24px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  for (const e of city.entrances) { x.fillStyle = 'rgba(10,14,20,.8)'; x.beginPath(); x.arc(o + e.x * s, o + e.z * s, 17, 0, 7); x.fill(); x.fillText(e.icon, o + e.x * s, o + e.z * s + 1); }
+  x.font = '18px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  for (const e of city.entrances) { x.fillStyle = 'rgba(10,14,20,.8)'; x.beginPath(); x.arc(o + e.x * s, o + e.z * s, icoR, 0, 7); x.fill(); x.fillText(e.icon, o + e.x * s, o + e.z * s + 1); }
   const p = inCar && pcar ? pcar.pos : player.pos;
   if (mode === 'city') { x.fillStyle = '#46d1ff'; x.strokeStyle = '#fff'; x.lineWidth = 4; x.beginPath(); x.arc(o + p.x * s, o + p.z * s, 11, 0, 7); x.fill(); x.stroke(); }
   if (pcar && !inCar) x.fillText('🚗', o + pcar.pos.x * s, o + pcar.pos.z * s);
@@ -1597,10 +1615,11 @@ async function taxi(e) {
   await fade(true);
   if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveRoom(); }
   ST.passTime(S, 5 + d / 60, 'idle');
-  player.pos.set(e.x, 0.18, e.z + (e.face === 0 ? 1.6 : -1.6));
+  player.pos.set(e.x + e.nx * 1.6, 0.18, e.z + e.nz * 1.6);
   player.heading = e.face + Math.PI;
   cam.yaw = player.heading + Math.PI;
-  city.collide(player.pos, 0.35);
+  city.collide(player.pos, 0.35, { walker: true });
+  city.warmup(player.pos);
   human.root.position.copy(player.pos);
   await wait(500);
   await fade(false);
@@ -1609,13 +1628,14 @@ async function taxi(e) {
   if (S.waypoint && S.waypoint.name === e.name) S.waypoint = null;
 }
 function callCar() {
-  // 가장 가까운 도로 바깥 차선에 세움
+  // 가장 가까운 도로 갓길에 세움
   const p = player.pos;
-  const kx = Math.round((p.x + HALF) / P), kz = Math.round((p.z + HALF) / P);
-  const rx = ROADS[Math.max(0, Math.min(N, kx))], rz = ROADS[Math.max(0, Math.min(N, kz))];
+  const kx = nearestRoad(p.x), kz = nearestRoad(p.z);
+  const rx = ROADS[kx], rz = ROADS[kz];
   let x, z, h;
-  if (Math.abs(p.x - rx) < Math.abs(p.z - rz)) { const side = p.x > rx ? 1 : -1; x = rx + side * 6.6; z = THREE.MathUtils.clamp(p.z, rz - P / 2 + 16, rz + P / 2 - 16); h = side > 0 ? Math.PI : 0; }
-  else { const side = p.z > rz ? 1 : -1; z = rz + side * 6.6; x = THREE.MathUtils.clamp(p.x, rx - P / 2 + 16, rx + P / 2 - 16); h = side > 0 ? Math.PI / 2 : -Math.PI / 2; }
+  const clampSeg = (v) => { const b = blockIndex(v); return THREE.MathUtils.clamp(v, ROADS[b] + 18, ROADS[b + 1] - 18); };
+  if (Math.abs(p.x - rx) < Math.abs(p.z - rz) && city.onRoad(rx, clampSeg(p.z))) { const side = p.x > rx ? 1 : -1; x = rx + side * 8.9; z = clampSeg(p.z); h = side > 0 ? Math.PI : 0; }
+  else { const side = p.z > rz ? 1 : -1; z = rz + side * 8.9; x = clampSeg(p.x); h = side > 0 ? Math.PI / 2 : -Math.PI / 2; }
   pcar.place(x, z, h);
   S.carPos = { x, z, h };
   toast('🚗 차가 근처 도로에 도착했어요', 'good');

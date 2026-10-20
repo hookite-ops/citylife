@@ -75,7 +75,7 @@ export class Sky {
     scene.add(this.sun, this.sun.target);
     this.hemi = new THREE.HemisphereLight(0xbcd6ff, 0x4a4238, 0.8);
     scene.add(this.hemi);
-    scene.fog = new THREE.Fog(0xc2d6e8, 60, 900);
+    scene.fog = new THREE.Fog(0xc2d6e8, 80, 1500);
 
     // 환경맵(반사)
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -125,7 +125,7 @@ export class Sky {
     this.hemi.color.copy(this.uniforms.top.value).lerp(new THREE.Color(0xffffff), 0.45);
     this.hemi.groundColor.set(night > 0.5 ? 0x1a1814 : 0x4a4238);
     this.scene.fog.color.copy(lerpKey(h, 6));
-    this.scene.fog.far = night > 0.5 ? 650 : 900;
+    this.scene.fog.far = night > 0.5 ? 1100 : 1500;
 
     // 그림자 카메라는 플레이어를 따라감 (텍셀 단위로 스냅해서 깜빡임 방지)
     const R = this.shadowRange || 60;

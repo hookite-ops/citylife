@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GB } from './geo.js';
-import { N, P, ROAD, ROADS, STOP, LANE1, LANE2, HALF } from './config.js';
+import { N, ROAD, ROADS, STOP, LANE1, LANE2, hasEdge, segLen } from './config.js';
 
 // ───────── 차량 모델 ─────────
 const PROFILES = {
@@ -130,7 +130,7 @@ export function buildCarMesh(type, color, { player = false } = {}) {
 const DIRS = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] };
 const right = (d) => [-d[1], d[0]];
 function dirKey(d) { return d[0] > 0 ? '+x' : d[0] < 0 ? '-x' : d[1] > 0 ? '+z' : '-z'; }
-function inB(a, b) { return a >= 0 && a <= N && b >= 0 && b <= N; }
+
 
 // ───────── 교통 시스템 ─────────
 const TRAFFIC_COLORS = [0xf2f2ee, 0xe9e9e6, 0x111316, 0x1a1c20, 0x8c9096, 0xa8adb2, 0x2b3a55, 0x6b1a1a, 0x3a4a3a, 0xc8c2b0, 0x24303c, 0xf2f2ee, 0x4a4f55];
@@ -163,9 +163,10 @@ export class Traffic {
     for (let tries = 0; tries < 30; tries++) {
       const a = Math.floor(Math.random() * (N + 1)), b = Math.floor(Math.random() * (N + 1));
       const dk = keys[Math.floor(Math.random() * 4)], d = DIRS[dk];
-      if (!inB(a + d[0], b + d[1])) continue;
+      if (!hasEdge(a, b, d)) continue;
       const lane = Math.random() < 0.5 ? 1 : 2;
-      const u = ROAD / 2 + 2 + Math.random() * (P - STOP - ROAD / 2 - 6);
+      const L = segLen(a, b, d);
+      const u = ROAD / 2 + 2 + Math.random() * (L - STOP - ROAD / 2 - 6);
       const pos = this.lanePos(a, b, d, lane, u);
       if (this.cars.some(c => c.pos.distanceTo(pos) < 9)) continue;
       if (far && far.distanceTo(pos) < 120) continue;
@@ -174,7 +175,7 @@ export class Traffic {
       const mesh = buildCarMesh(type, color);
       this.group.add(mesh.root);
       const car = {
-        id: Math.random(), mesh, type, a, b, d, lane, u, state: 'straight', pos, heading: Math.atan2(d[0], d[1]),
+        id: Math.random(), mesh, type, a, b, d, lane, u, L, state: 'straight', pos, heading: Math.atan2(d[0], d[1]),
         speed: 6, maxSpeed: (type === 'truck' ? 10 : 12) + Math.random() * 4, stuck: 0, len: mesh.L,
       };
       this.plan(car);
@@ -193,13 +194,14 @@ export class Traffic {
     const ja = car.a + car.d[0], jb = car.b + car.d[1];
     const d = car.d, r = right(d), l = [-r[0], -r[1]];
     const opts = [];
-    if (inB(ja + d[0], jb + d[1])) opts.push(d, d);
-    if (car.lane === 1 && inB(ja + l[0], jb + l[1])) opts.push(l);
-    if (car.lane === 2 && inB(ja + r[0], jb + r[1])) opts.push(r);
+    if (hasEdge(ja, jb, d)) opts.push(d, d);
+    if (car.lane === 1 && hasEdge(ja, jb, l)) opts.push(l);
+    if (car.lane === 2 && hasEdge(ja, jb, r)) opts.push(r);
     if (!opts.length) {
-      if (inB(ja + l[0], jb + l[1])) opts.push(l);
-      if (inB(ja + r[0], jb + r[1])) opts.push(r);
+      if (hasEdge(ja, jb, l)) opts.push(l);
+      if (hasEdge(ja, jb, r)) opts.push(r);
     }
+    if (!opts.length) opts.push([-d[0], -d[1]]);
     car.next = opts[Math.floor(Math.random() * opts.length)];
     car.turnType = car.next === d ? 's' : (car.next[0] === r[0] && car.next[1] === r[1]) ? 'r' : 'l';
   }
@@ -254,7 +256,7 @@ export class Traffic {
     for (const c of cars) {
       let target = c.maxSpeed;
       if (c.state === 'straight') {
-        const stopU = P - STOP;
+        const stopU = c.L - STOP;
         const distLine = stopU - c.u;
         // 신호
         const ja = c.a + c.d[0], jb = c.b + c.d[1];
@@ -276,13 +278,14 @@ export class Traffic {
       const step = c.speed * dt;
       if (c.state === 'straight') {
         c.u += step;
-        if (c.u >= P - STOP) { const over = c.u - (P - STOP); this.beginTurn(c); c.t = over / c.bezLen; }
+        if (c.u >= c.L - STOP) { const over = c.u - (c.L - STOP); this.beginTurn(c); c.t = over / c.bezLen; }
         else { c.pos.copy(this.lanePos(c.a, c.b, c.d, c.lane, c.u)); c.heading = Math.atan2(c.d[0], c.d[1]); }
       }
       if (c.state === 'turn') {
         c.t += step / c.bezLen;
         if (c.t >= 1) {
           c.a = c.ja; c.b = c.jb; c.d = c.next; c.u = ROAD / 2 + (c.t - 1) * c.bezLen; c.state = 'straight';
+          c.L = segLen(c.a, c.b, c.d);
           this.plan(c);
           c.pos.copy(this.lanePos(c.a, c.b, c.d, c.lane, c.u));
           c.heading = Math.atan2(c.d[0], c.d[1]);

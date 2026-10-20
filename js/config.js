@@ -1,22 +1,52 @@
-// 도시 기본 치수 (단위: m)
-export const N = 6;            // 한 변의 블록 수
-export const ROAD = 16;        // 도로 폭 (편도 2차선)
-export const BLOCK = 64;       // 블록 폭
-export const P = BLOCK + ROAD; // 도로 중심 간격
-export const HALF = (N * P) / 2;
+// ───────── 한빛신도시 마스터플랜 ─────────
+// 가로·세로 8개 블록, 도로 9줄. 블록 크기는 가운데로 갈수록 커짐 (단위 m)
+export const N = 8;
+export const ROAD = 20;          // 도로 폭: 중앙분리대 2 + 편도 2차로 7 + 갓길 1
+export const MEDIAN = 1.0;       // 중앙분리대 반폭
 export const SIDEWALK = 4;
-export const LANE1 = 1.9;      // 안쪽 차선 중심 (중앙선 기준)
-export const LANE2 = 5.4;      // 바깥 차선 중심
+export const LANE1 = 2.75;       // 1차로 중심 (도로 중심 기준)
+export const LANE2 = 6.25;       // 2차로 중심
 export const STOP = ROAD / 2 + 4.5; // 교차로 중심에서 정지선까지
-
-// 도로 중심 좌표 목록
+export const BLOCK_W = [104, 112, 116, 124, 124, 116, 112, 104];
 export const ROADS = [];
-for (let k = 0; k <= N; k++) ROADS.push(k * P - HALF);
+{
+  const total = BLOCK_W.reduce((a, b) => a + b, 0) + N * ROAD;
+  ROADS.push(-total / 2);
+  for (let k = 0; k < N; k++) ROADS.push(ROADS[k] + ROAD + BLOCK_W[k]);
+}
+export const HALF = ROADS[N];
+export const BLOCK = 120;        // (옛 코드 호환용 평균값)
+export const P = 140;
+
+// 호수공원 안쪽은 도로가 없음: v:k:s = x=ROADS[k] 세로도로의 s번째 구간, h:k:s = z=ROADS[k] 가로도로
+export const REMOVED = new Set(['v:4:3', 'v:4:4', 'h:4:3', 'h:4:4']);
+export function inNode(a, b) { return a >= 0 && a <= N && b >= 0 && b <= N; }
+export function hasEdge(a, b, d) {
+  const na = a + d[0], nb = b + d[1];
+  if (!inNode(a, b) || !inNode(na, nb)) return false;
+  if (d[0]) return !REMOVED.has(`h:${b}:${Math.min(a, na)}`);
+  return !REMOVED.has(`v:${a}:${Math.min(b, nb)}`);
+}
+export function nodeExists(a, b) {
+  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(d => hasEdge(a, b, d));
+}
+export function segLen(a, b, d) { return d[0] ? Math.abs(ROADS[a + d[0]] - ROADS[a]) : Math.abs(ROADS[b + d[1]] - ROADS[b]); }
+export function nearestRoad(v) {
+  let best = 0, bd = 1e9;
+  for (let k = 0; k <= N; k++) { const d = Math.abs(ROADS[k] - v); if (d < bd) { bd = d; best = k; } }
+  return best;
+}
+// 좌표가 들어 있는 블록 번호 (도로 위면 가까운 쪽)
+export function blockIndex(v) {
+  for (let k = 0; k < N; k++) if (v < ROADS[k + 1]) return Math.max(0, k);
+  return N - 1;
+}
 
 // 블록 (i,j)의 범위
 export function blockRect(i, j) {
   const x0 = ROADS[i] + ROAD / 2, z0 = ROADS[j] + ROAD / 2;
-  return { x0, z0, x1: x0 + BLOCK, z1: z0 + BLOCK, cx: x0 + BLOCK / 2, cz: z0 + BLOCK / 2 };
+  const x1 = ROADS[i + 1] - ROAD / 2, z1 = ROADS[j + 1] - ROAD / 2;
+  return { x0, z0, x1, z1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0 };
 }
 
 export const WORLD_LIMIT = HALF + 40;

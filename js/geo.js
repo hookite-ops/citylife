@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 
 // 여러 박스/면을 한 지오메트리로 합쳐서 드로우콜을 줄이는 빌더
+const _c = new THREE.Color();
 export class GB {
   constructor() { this.p = []; this.n = []; this.uv = []; this.c = []; this.i = []; this.color = null; }
   _v(x, y, z, nx, ny, nz, u, v) {
     this.p.push(x, y, z); this.n.push(nx, ny, nz); this.uv.push(u, v);
     if (this.color) this.c.push(this.color[0], this.color[1], this.color[2]);
     return this.p.length / 3 - 1;
+  }
+  setRGB(r, g, b) {
+    const c = _c.setRGB(r, g, b, THREE.SRGBColorSpace);
+    this.color = [c.r, c.g, c.b];
   }
   setColor(hex) {
     if (hex == null) { this.color = null; return; }

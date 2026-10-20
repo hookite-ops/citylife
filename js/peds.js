@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import { N, blockRect } from './config.js';
+import { N, blockRect, blockIndex } from './config.js';
 import { createPed, SKINS, HAIRS, SHIRTS, PANTS, SHOES } from './human.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
 export class Peds {
-  constructor(scene, count) {
+  constructor(scene, count, skip) {
     this.scene = scene;
+    this.skip = skip || (() => false);
+    this.focus = null;
     this.group = new THREE.Group(); scene.add(this.group);
     this.list = [];
     this.setCount(count);
@@ -15,8 +17,19 @@ export class Peds {
     while (this.list.length > n) this.group.remove(this.list.pop().p.root);
     while (this.list.length < n) this.add();
   }
-  add() {
-    const i = Math.floor(Math.random() * N), j = Math.floor(Math.random() * N);
+  pickBlock() {
+    for (let t = 0; t < 40; t++) {
+      let i = Math.floor(Math.random() * N), j = Math.floor(Math.random() * N);
+      if (this.focus) {
+        i = Math.max(0, Math.min(N - 1, blockIndex(this.focus.x) + Math.floor(Math.random() * 5) - 2));
+        j = Math.max(0, Math.min(N - 1, blockIndex(this.focus.z) + Math.floor(Math.random() * 5) - 2));
+      }
+      if (!this.skip(i, j)) return [i, j];
+    }
+    return [0, 0];
+  }
+  add(o) {
+    const [i, j] = this.pickBlock();
     const r = blockRect(i, j);
     const dir = Math.random() < 0.5 ? 1 : -1;
     const inset = dir > 0 ? 1.4 : 2.8;
@@ -40,7 +53,21 @@ export class Peds {
     s -= d; if (s < w) return [x1 - s, z1, -1, 0];
     s -= w; return [x0, z1 - s, 0, -1];
   }
+  relocate(o) {
+    const [i, j] = this.pickBlock();
+    const r = blockRect(i, j);
+    const inset = o.dir > 0 ? 1.4 : 2.8;
+    o.rect = [r.x0 + inset, r.z0 + inset, r.x1 - inset, r.z1 - inset];
+    o.per = 2 * (o.rect[2] - o.rect[0]) + 2 * (o.rect[3] - o.rect[1]);
+    o.s = Math.random() * o.per;
+  }
   update(dt, playerPos, camPos) {
+    this.focus = playerPos;
+    this.relocT = (this.relocT || 0) + dt;
+    if (this.relocT > 1) {
+      this.relocT = 0;
+      for (const o of this.list) if (o.pos.distanceTo(playerPos) > 280) { this.relocate(o); break; }
+    }
     for (const o of this.list) {
       const [x, z, tx, tz] = this.pointAt(o, o.s);
       const fx = tx * o.dir, fz = tz * o.dir;
