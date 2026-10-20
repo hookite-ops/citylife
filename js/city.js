@@ -40,11 +40,12 @@ const SP = {
   furn: { id: 'furn', name: '홈데코 가구점', sign: ['홈데코', '#2f4a3a', '#f1ead8', '가구 · 인테리어'], icon: '🛋️' },
   realty: { id: 'realty', name: '행복 부동산', sign: ['행복 부동산', '#1d3b6e', '#ffffff', '매매 · 전세 · 월세'], icon: '🏘️' },
   gym: { id: 'gym', name: '헬스장 · 핏라이프', sign: ['FIT LIFE', '#202020', '#ff5a2a', '24시 헬스 · 샤워'], icon: '💪' },
+  stat: { id: 'stat', name: '문구랜드', sign: ['문구랜드', '#ff8a3a', '#ffffff', '문구 · 완구 · 팬시'], icon: '✏️' },
   office: { id: 'office', name: '한빛그룹 본사', sign: ['HANBIT GROUP', '#0f2a44', '#e8f1ff', '한빛그룹'], icon: '🏢' },
 };
 export const SPECIALS = SP;
 const BLOCK_SP = {
-  '3,2': ['mart', 'rest'], '2,3': ['furn'], '2,4': ['realty'], '2,7': ['gym'], '9,3': ['delivery'], '9,4': ['cars'], '8,8': ['mart'],
+  '3,2': ['mart', 'stat', 'rest'], '2,3': ['furn'], '2,4': ['realty'], '2,7': ['gym'], '9,3': ['delivery'], '9,4': ['cars'], '8,8': ['mart'],
 };
 const APT_HOME_BLOCK = '1,2', PENT_BLOCK = '4,5', HQ_BLOCK = '4,4', HOME_BLOCK = '2,2';
 
@@ -320,21 +321,30 @@ export class City {
         for (let x = x0 + 10; x < x1 - 10; x += 22) this.tree(blk, x, az, 0.75, R() < 0.3 ? 'pink' : null);
       }
     }
-    let spi = 0;
+    // 특수 가게 자리: 큰길 쪽 넓은 필지에 고르게 배치
+    const cand = lots.map((l, i) => i).filter(i => lots[i].outer && lots[i].x1 - lots[i].x0 > 15);
+    const spAt = {}, used = new Set();
+    specials.forEach((id, j) => {
+      let c = Math.min(cand.length - 1, Math.floor((j + 0.5) * cand.length / specials.length));
+      for (let t = 0; t < cand.length && used.has(c); t++) c = (c + 1) % cand.length;
+      if (cand[c] !== undefined && !used.has(c)) { used.add(c); spAt[cand[c]] = id; }
+    });
     lots.forEach((lot, k) => {
       const streets = [lot.front]; if (lot.west) streets.push('W'); if (lot.east) streets.push('E');
-      const spId = lot.outer && lot.x1 - lot.x0 > 22 && spi < specials.length && k % 2 === 1 ? specials[spi++] : null;
+      const spId = spAt[k] || null;
       const shop = (a, b, fl, seed) => blk.specs.push({ type: 'shop', x0: a, x1: b, z0: lot.z0, z1: lot.z1, y0: Y0, floors: fl, fh: 3.4, groundH: 4.6, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], seed, front: lot.front, streets: [lot.front], signBase: Math.floor(R() * 48), unitW: 6.5 });
-      if (spId === 'mart') {
-        // 편의점: 실제 크기 실내가 들어가는 건물
+      if (spId === 'mart' || spId === 'stat') {
+        // 편의점 · 문구점: 실제 크기 실내 공간이 들어가는 건물
         const front = lot.front, cx = (lot.x0 + lot.x1) / 2;
         const fz = front === 'N' ? lot.z0 : lot.z1;
-        this.sites.push({ kind: 'mart', id: 'mart', W: 14, D: 12, wall: 0.3, x: cx, z: fz + (front === 'N' ? 6.3 : -6.3), rot: front === 'N' ? Math.PI : 0, floors: 3, fh: 3.3, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], sp: SP.mart, idx: this.sites.filter(s => s.kind === 'mart').length, depthBack: lot.z1 - lot.z0 });
-        if (lot.x1 - cx - 7.4 > 9) shop(cx + 7.4, lot.x1, 2 + Math.floor(R() * 3), blk.seed * 100 + k);
-        if (cx - 7.4 - lot.x0 > 9) shop(lot.x0, cx - 7.4, 2 + Math.floor(R() * 3), blk.seed * 100 + k + 500);
-        // 편의점 뒤 남는 자리
-        const bz0 = front === 'N' ? lot.z0 + 12.8 : lot.z0, bz1 = front === 'N' ? lot.z1 : lot.z1 - 12.8;
-        if (bz1 - bz0 > 3) this.colliders.push({ x0: cx - 7.3, x1: cx + 7.3, z0: bz0, z1: bz1, h: 13 });
+        const [SW, SD] = spId === 'mart' ? [14, 12] : [11, 9];
+        const hw = SW / 2 + 0.4, hd = SD / 2 + 0.3;
+        this.sites.push({ kind: spId, id: spId, W: SW, D: SD, wall: 0.3, x: cx, z: fz + (front === 'N' ? hd : -hd), rot: front === 'N' ? Math.PI : 0, floors: spId === 'mart' ? 3 : 2 + Math.floor(R() * 2), fh: 3.3, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], sp: SP[spId], idx: this.sites.filter(s => s.kind === spId).length });
+        if (lot.x1 - cx - hw > 9) shop(cx + hw, lot.x1, 2 + Math.floor(R() * 3), blk.seed * 100 + k);
+        if (cx - hw - lot.x0 > 9) shop(lot.x0, cx - hw, 2 + Math.floor(R() * 3), blk.seed * 100 + k + 500);
+        // 뒤쪽 남는 자리
+        const bz0 = front === 'N' ? lot.z0 + 2 * hd + 0.2 : lot.z0, bz1 = front === 'N' ? lot.z1 : lot.z1 - 2 * hd - 0.2;
+        if (bz1 - bz0 > 3) this.colliders.push({ x0: cx - hw + 0.1, x1: cx + hw - 0.1, z0: bz0, z1: bz1, h: 13 });
         return;
       }
       const sp = spId ? SP[spId] : null;
@@ -995,26 +1005,36 @@ export class City {
       const B = new Bld();
       const adj = (v, lim) => Math.abs(Math.abs(v) - lim) < 1e-6 ? v + Math.sign(v) * 0.025 : v;   // 실내 벽과 겹치지 않게
       const skin = (lx0, lz0, lx1, lz1, y0, y1, col) => { const r = wrect(adj(lx0, W / 2), adj(lz0, D / 2), adj(lx1, W / 2), adj(lz1, D / 2)); B.solid.setRGB(...col); B.solid.box(r.x0, Y0 + y0, r.z0, r.x1, Y0 + y1, r.z1); };
-      const topH = Y0 + (s.kind === 'mart' ? 3.3 : s.kind === 'home' ? 3.0 : 3.3) + s.floors * (s.fh || 3.6);
+      const topH = Y0 + (s.kind === 'mart' || s.kind === 'stat' ? 3.3 : s.kind === 'home' ? 3.0 : 3.3) + s.floors * (s.fh || 3.6);
       const wallCol = (lx0, lz0, lx1, lz1, h = topH) => { this.colliders.push({ ...wrect(lx0, lz0, lx1, lz1), h }); };
       const [nx, nz] = s.normal;
-      if (s.kind === 'mart') {
-        const gh = 3.3;
+      if (s.kind === 'mart' || s.kind === 'stat') {
+        const gh = 3.3, mart = s.kind === 'mart';
+        const dx0 = mart ? 3.2 : 2.7, dx1 = mart ? 5.2 : 4.3, dcx = (dx0 + dx1) / 2;
         const outer = wrect(-W / 2 - t, -D / 2 - t, W / 2 + t, D / 2 + t);
         const up = { type: 'upper', ...outer, y0: Y0 + gh, floors: s.floors, fh: s.fh, color: s.color, accent: [0.3, 0.32, 0.36], seed: 7000 + s.idx, front: s.frontKey };
         buildNear(B, up); s.specs = [up];
         skin(-W / 2 - t, -D / 2 - t, W / 2 + t, -D / 2, 0, gh, s.color);
         skin(-W / 2 - t, -D / 2, -W / 2, D / 2, 0, gh, s.color);
         skin(W / 2, -D / 2, W / 2 + t, D / 2, 0, gh, s.color);
-        skin(-W / 2 - t, D / 2, W / 2 + t, D / 2 + t, 3.0, gh, [0.12, 0.55, 0.3]);
+        skin(-W / 2 - t, D / 2, W / 2 + t, D / 2 + t, 3.0, gh, mart ? [0.12, 0.55, 0.3] : [1, 0.55, 0.22]);
         skin(-W / 2 - t, D / 2, -W / 2, D / 2 + t, 0, 3, s.color); skin(W / 2, D / 2, W / 2 + t, D / 2 + t, 0, 3, s.color);
         wallCol(-W / 2 - t, -D / 2 - t, W / 2 + t, -D / 2); wallCol(-W / 2 - t, -D / 2, -W / 2, D / 2 + t); wallCol(W / 2, -D / 2, W / 2 + t, D / 2 + t);
-        wallCol(-W / 2, D / 2 - 0.15, 3.2, D / 2 + t); wallCol(5.2, D / 2 - 0.15, W / 2, D / 2 + t);
-        const [ex, ez] = s.toWorld(4.2, D / 2 + 2.2);
-        this.entrances.push({ id: 'mart', name: s.sp.name, icon: s.sp.icon, x: ex, z: ez, nx, nz, face: Math.atan2(nx, nz), site: s, walkIn: true });
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), this.signMat(s.sp.sign)); sign.position.set(-1.5, gh + 1.0, D / 2 + t + 0.32); s.signs.add(sign);
-        const sbk = new THREE.Mesh(new THREE.BoxGeometry(6.3, 1.7, 0.3), this.mat.plain); sbk.position.set(-1.5, gh + 1.0, D / 2 + t + 0.15); s.signs.add(sbk);
-        this.parking['mart' + s.idx] = this.curbSpot({ x0: outer.x0, x1: outer.x1, z0: outer.z0, z1: outer.z1 }, s.frontKey, W / 2);
+        wallCol(-W / 2, D / 2 - 0.15, dx0, D / 2 + t); wallCol(dx1, D / 2 - 0.15, W / 2, D / 2 + t);
+        const [ex, ez] = s.toWorld(dcx, D / 2 + 2.2);
+        this.entrances.push({ id: s.kind, name: s.sp.name, icon: s.sp.icon, x: ex, z: ez, nx, nz, face: Math.atan2(nx, nz), site: s, walkIn: true });
+        const sw = mart ? 6 : 5, sx = mart ? -1.5 : -1.8;
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw / 4), this.signMat(s.sp.sign)); sign.position.set(sx, gh + 1.0, D / 2 + t + 0.32); s.signs.add(sign);
+        const sbk = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.3, sw / 4 + 0.2, 0.3), this.mat.plain); sbk.position.set(sx, gh + 1.0, D / 2 + t + 0.15); s.signs.add(sbk);
+        if (!mart) {
+          // 문구점 앞 차양 + 입간판
+          const aw = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.1, 1.3), new THREE.MeshStandardMaterial({ color: 0xff8a3a, roughness: 0.6 })); aw.position.set(0, 3.05, D / 2 + t + 0.65); aw.rotation.x = 0.12; s.signs.add(aw);
+          const bt = T.sign('오늘의 추천', '#ffffff', '#ff6a1a', '스케치북 · 뽑기', 256, 384);
+          const pm = this.mat.plain, bm = new THREE.MeshStandardMaterial({ map: bt });
+          const board = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.04), [pm, pm, pm, pm, bm, pm]);
+          board.position.set(-W / 2 + 1.2, 0.5, D / 2 + t + 1.1); board.rotation.x = -0.12; s.signs.add(board);
+        }
+        this.parking[s.kind + s.idx] = this.curbSpot({ x0: outer.x0, x1: outer.x1, z0: outer.z0, z1: outer.z1 }, s.frontKey, W / 2);
       } else if (s.kind === 'home') {
         const gh = 3.0, nb = s.neighbor;
         const outer = wrect(-W / 2 - t, -D / 2 - t, W / 2 + t + nb, D / 2 + t);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 // ───────── 편의점 상품: 라벨 아틀라스 + 실제 모양 지오메트리 ─────────
 // 모든 상품은 하나의 재질(라벨 아틀라스 × 꼭짓점 색)을 공유해서 드로우콜이 적어요.
-const N = 8;            // 아틀라스 8×8 칸 (칸당 256px)
+let N = 10;           // 아틀라스 N×N 칸 (칸당 256px)
 const CELL = 256;
 const _c = new THREE.Color();
 const hex = (h) => { _c.set(h); return [_c.r, _c.g, _c.b]; };
@@ -57,6 +57,39 @@ export const SKUS = {
   icebar2: { shape: 'bar', w: 0.065, h: 0.025, d: 0.19, body: 0xff4a4a, bg: ['#ff5a5a', '#c81a1a'], fg: '#ffffff', brand: '수박바', name: '', icon: '🍉', price: 1200 },
   icecone: { shape: 'bar', w: 0.075, h: 0.075, d: 0.2, body: 0xe8b060, bg: ['#3a1a8a', '#1a0a4a'], fg: '#ffd27a', brand: '초코콘', name: '', icon: '🍦', price: 1800 },
   icecup: { shape: 'tub', r: 0.05, h: 0.05, lid: 0xffffff, bg: ['#ffffff', '#ffe0ea'], fg: '#d81a5a', brand: '딸기컵', name: '', icon: '🍨', price: 1500 },
+  // ───── 문구점 ─────
+  note1: { shape: 'box', w: 0.19, h: 0.26, d: 0.008, body: 0xffffff, bg: ['#7ec8ff', '#3a8ae8'], fg: '#ffffff', brand: 'NOTE', name: '스프링 공책', icon: '🐳', price: 1500, art: 'note' },
+  note2: { shape: 'box', w: 0.19, h: 0.26, d: 0.008, body: 0xffffff, bg: ['#ffb0d0', '#ff6aa0'], fg: '#ffffff', brand: 'MY NOTE', name: '스프링 공책', icon: '🐰', price: 1500, art: 'note' },
+  note3: { shape: 'box', w: 0.19, h: 0.26, d: 0.008, body: 0xffffff, bg: ['#c8f0a0', '#6ac04a'], fg: '#ffffff', brand: 'STUDY', name: '스프링 공책', icon: '🦖', price: 1500, art: 'note' },
+  notepack: { shape: 'box', w: 0.19, h: 0.26, d: 0.035, body: 0xf4f4f0, bg: ['#ffe680', '#ffb81a'], fg: '#5a3a00', brand: '줄공책', name: '5권 묶음', icon: '📒', price: 4000, art: 'note' },
+  sketch: { shape: 'box', w: 0.27, h: 0.37, d: 0.012, body: 0xf8f4ea, bg: ['#ffffff', '#f2ece0'], fg: '#2a2a2a', brand: '스케치북', name: '8절 · 20매', icon: '🎨', price: 3000, art: 'sketch' },
+  postit: { shape: 'box', w: 0.08, h: 0.08, d: 0.03, body: 0xfff06a, bg: ['#fff06a', '#ffd21a'], fg: '#7a5a00', brand: '붙임쪽지', name: '76×76', icon: '📝', price: 2000 },
+  pencils: { shape: 'box', w: 0.075, h: 0.2, d: 0.016, body: 0x2a6a3a, bg: ['#2a7a3a', '#1a4a24'], fg: '#ffe680', brand: '연필 12자루', name: 'HB', icon: '✏️', price: 3000, art: 'pencils' },
+  colorp: { shape: 'box', w: 0.21, h: 0.14, d: 0.018, body: 0xffffff, bg: ['#ffffff', '#e8f0ff'], fg: '#1a3a8a', brand: '색연필 24색', name: '부드럽게 칠해져요', icon: '🖍️', price: 6000, art: 'pencils' },
+  crayon: { shape: 'box', w: 0.2, h: 0.12, d: 0.025, body: 0xffd21a, bg: ['#ffd21a', '#ff9a1a'], fg: '#c8102e', brand: '크레파스', name: '24색', icon: '🖍️', price: 5000 },
+  paint: { shape: 'box', w: 0.22, h: 0.15, d: 0.03, body: 0x1a6ad8, bg: ['#ffffff', '#d8ecff'], fg: '#1a5ab0', brand: '수채물감', name: '18색 세트', icon: '🎨', price: 8000 },
+  calc: { shape: 'box', w: 0.09, h: 0.15, d: 0.016, body: 0x3a3e44, bg: ['#4a4e56', '#2a2e34'], fg: '#ffffff', brand: '계산기', name: '12자리', icon: '🧮', price: 9000, art: 'calc' },
+  folder: { shape: 'box', w: 0.23, h: 0.31, d: 0.006, body: 0x3ab0ff, bg: ['#7ad0ff', '#2a90e8'], fg: '#ffffff', brand: 'FILE', name: 'A4 클리어 파일', icon: '📂', price: 1500 },
+  stapler: { shape: 'box', w: 0.14, h: 0.07, d: 0.04, body: 0xd8231e, bg: ['#ff4a3a', '#c8101e'], fg: '#ffffff', brand: '스테이플러', name: '10호 심 포함', icon: '📎', price: 4000 },
+  glue: { shape: 'can', r: 0.014, h: 0.095, body: 0xffffff, bg: ['#ffe23a', '#ffb81a'], fg: '#1a4ab0', brand: '딱풀', name: '', icon: '🧴', price: 1000 },
+  // 걸이 진열 (블리스터 카드)
+  pen3: { shape: 'box', w: 0.075, h: 0.2, d: 0.018, body: 0xffffff, bg: ['#ffffff', '#e0ecff'], fg: '#1a3a8a', brand: '3색 볼펜', name: '0.7mm', icon: '🖊️', price: 2000, art: 'card' },
+  mech: { shape: 'box', w: 0.075, h: 0.2, d: 0.018, body: 0xffffff, bg: ['#ffffff', '#eaeaea'], fg: '#2a2a2a', brand: '샤프', name: '0.5mm', icon: '✒️', price: 3000, art: 'card' },
+  hili: { shape: 'box', w: 0.1, h: 0.18, d: 0.022, body: 0xffffff, bg: ['#ffffff', '#fff6b0'], fg: '#c87a00', brand: '형광펜', name: '5색 세트', icon: '🖍️', price: 3500, art: 'card' },
+  eraser: { shape: 'box', w: 0.07, h: 0.12, d: 0.018, body: 0xffffff, bg: ['#ffffff', '#e8f4ff'], fg: '#1a5ab0', brand: '지우개', name: '잘 지워져요', icon: '⬜', price: 500, art: 'card' },
+  scissors: { shape: 'box', w: 0.09, h: 0.2, d: 0.016, body: 0xffffff, bg: ['#ffffff', '#ffe0e0'], fg: '#c8101e', brand: '안전가위', name: '', icon: '✂️', price: 2500, art: 'card' },
+  tape: { shape: 'box', w: 0.09, h: 0.14, d: 0.022, body: 0xffffff, bg: ['#ffffff', '#e8ffe8'], fg: '#2a7a2a', brand: '투명테이프', name: '', icon: '🎞️', price: 1500, art: 'card' },
+  keyring: { shape: 'box', w: 0.08, h: 0.14, d: 0.02, body: 0xffffff, bg: ['#ffe0f0', '#ffb0d8'], fg: '#c81a6a', brand: '인형 키링', name: '랜덤', icon: '🧸', price: 5000, art: 'card' },
+  // 장난감
+  blocks: { shape: 'box', w: 0.3, h: 0.22, d: 0.08, body: 0xffd21a, bg: ['#ffd21a', '#ff8a00'], fg: '#c8101e', brand: '블록 놀이', name: '300피스', icon: '🧱', price: 15000 },
+  slime: { shape: 'tub', r: 0.035, h: 0.05, lid: 0x7ad84a, bg: ['#c0ff8a', '#7ad84a'], fg: '#1a6a1a', brand: '슬라임', name: '', icon: '🫧', price: 3000 },
+  spinner: { shape: 'box', w: 0.13, h: 0.17, d: 0.05, body: 0x2a6ad8, bg: ['#2a2a6a', '#0a0a3a'], fg: '#4dd8ff', brand: '배틀 팽이', name: '런처 포함', icon: '🌀', price: 8000 },
+  car: { shape: 'box', w: 0.16, h: 0.1, d: 0.06, body: 0xd8231e, bg: ['#ffffff', '#ffe0e0'], fg: '#c8101e', brand: '미니카', name: '레이싱', icon: '🏎️', price: 4500 },
+  // 추억의 간식
+  jjon: { shape: 'bag', w: 0.1, h: 0.17, d: 0.025, bg: ['#ffcc5a', '#ff8a1a'], fg: '#7a2a00', brand: '쫀득이', name: '구워 먹는', icon: '🍬', price: 500 },
+  starcandy: { shape: 'bag', w: 0.08, h: 0.12, d: 0.03, bg: ['#a0d8ff', '#6aa8ff'], fg: '#ffffff', brand: '별사탕', name: '', icon: '⭐', price: 500 },
+  strawjelly: { shape: 'box', w: 0.09, h: 0.14, d: 0.02, body: 0xffffff, bg: ['#ff8ad8', '#b04aff'], fg: '#ffffff', brand: '빨대젤리', name: '10개입', icon: '🍭', price: 1000 },
+  cornsnack: { shape: 'bag', w: 0.12, h: 0.17, d: 0.05, bg: ['#ffe23a', '#ffb81a'], fg: '#2a6a1a', brand: '콘과자', name: '추억의 맛', icon: '🌽', price: 1000 },
 };
 // 진열 코너별 상품 (가중치)
 export const SECTION_SKUS = {
@@ -68,6 +101,12 @@ export const SECTION_SKUS = {
   bread: ['bread', 'bread', 'bread2', 'choco', 'cookie'],
   misc: ['gum', 'battery', 'mask', 'candy', 'choco2'],
   ice: ['icebar', 'icebar2', 'icecone', 'icecup'],
+  st_note: ['note1', 'note2', 'note3', 'notepack', 'postit', 'folder'],
+  st_art: ['sketch', 'colorp', 'crayon', 'paint', 'glue', 'pencils'],
+  st_office: ['calc', 'stapler', 'postit', 'folder', 'pencils', 'glue'],
+  st_peg: ['pen3', 'mech', 'hili', 'eraser', 'scissors', 'tape', 'keyring'],
+  st_toy: ['blocks', 'slime', 'spinner', 'car', 'blocks', 'car'],
+  st_snack: ['jjon', 'starcandy', 'strawjelly', 'cornsnack'],
 };
 
 // ───────── 아틀라스 ─────────
@@ -75,6 +114,9 @@ let atlas = null;
 const cellOf = {};
 const tagCell = {};
 function makeAtlas() {
+  const ids0 = Object.keys(SKUS);
+  N = Math.ceil(Math.sqrt(1 + ids0.length + Math.ceil(ids0.length / 8)));
+  SOLID_UV = [0.5 / N, 1 - 0.5 / N];
   const c = document.createElement('canvas'); c.width = c.height = N * CELL;
   const x = c.getContext('2d');
   x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height);
@@ -121,6 +163,11 @@ function drawLabel(x, s) {
   if (s.art === 'eggs') return drawEggs(x, s);
   if (s.art === 'roll') return drawRoll(x, s);
   if (s.art === 'sand') return drawSand(x, s);
+  if (s.art === 'note') return drawNote(x, s);
+  if (s.art === 'sketch') return drawSketch(x, s);
+  if (s.art === 'pencils') return drawPencils(x, s);
+  if (s.art === 'calc') return drawCalc(x, s);
+  if (s.art === 'card') return drawCard(x, s);
   if (s.shape === 'tri') return drawTri(x, s);
   if (s.shape === 'bar') return drawBar(x, s);
   // 장식 띠
@@ -217,6 +264,71 @@ function drawSand(x, s) {
   x.fillStyle = '#ffffff'; x.fillRect(W * 0.2, H * 0.78, W * 0.6, H * 0.17);
   x.textAlign = 'center'; x.textBaseline = 'middle'; fitText(x, s.brand + ' ' + s.name, W * 0.56, 28); x.fillStyle = '#c8401e'; x.fillText(s.brand + ' ' + s.name, W / 2, H * 0.865);
 }
+function drawNote(x, s) {
+  const W = CELL, H = CELL;
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, s.bg[0]); g.addColorStop(1, s.bg[1]);
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  // 물방울 무늬
+  x.fillStyle = 'rgba(255,255,255,0.25)'; for (let i = 0; i < 14; i++) { x.beginPath(); x.arc((i * 53) % W, (i * 97) % H, 10 + (i % 3) * 6, 0, 7); x.fill(); }
+  // 스프링
+  if (s.d < 0.02) { x.fillStyle = '#c8ccd2'; for (let y = 10; y < H - 6; y += 16) { x.beginPath(); x.ellipse(10, y, 7, 4, 0, 0, 7); x.fill(); } }
+  x.fillStyle = 'rgba(255,255,255,0.92)'; x.beginPath(); x.roundRect(W * 0.2, H * 0.12, W * 0.66, H * 0.22, 12); x.fill();
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  fitText(x, s.brand, W * 0.6, 44); x.fillStyle = s.bg[1]; x.fillText(s.brand, W * 0.53, H * 0.23);
+  x.font = '96px sans-serif'; x.fillText(s.icon, W * 0.53, H * 0.6);
+  fitText(x, s.name, W * 0.7, 22, 700); x.fillStyle = s.fg; x.fillText(s.name, W * 0.53, H * 0.88);
+}
+function drawSketch(x, s) {
+  const W = CELL, H = CELL;
+  x.fillStyle = '#f6f2e8'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#2a2a2a'; x.fillRect(0, 0, W, 14);
+  x.fillStyle = '#c8ccd2'; for (let i = 8; i < W; i += 14) { x.beginPath(); x.arc(i, 14, 5, 0, 7); x.fill(); }
+  // 수채화 얼룩
+  for (const [c, cx, cy, r] of [['rgba(255,90,90,0.5)', 70, 120, 40], ['rgba(60,140,255,0.5)', 130, 140, 46], ['rgba(255,200,40,0.55)', 180, 110, 36], ['rgba(80,200,90,0.45)', 110, 180, 34]]) { x.fillStyle = c; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill(); }
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  fitText(x, s.brand, W * 0.8, 40); x.fillStyle = '#2a2a2a'; x.fillText(s.brand, W / 2, H * 0.3 - 10);
+  fitText(x, s.name, W * 0.6, 20, 700); x.fillText(s.name, W / 2, H * 0.9);
+}
+function drawPencils(x, s) {
+  const W = CELL, H = CELL;
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, s.bg[0]); g.addColorStop(1, s.bg[1]);
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const cols = s.brand.includes('색') ? ['#e8231e', '#ff8a00', '#ffd21a', '#3ac04a', '#1a8ae8', '#2a3ab0', '#8a2ad8', '#ff6ac8', '#7a4a1a', '#1a1a1a', '#9a9a9a', '#ffffff'] : ['#2a7a3a', '#2a7a3a', '#2a7a3a', '#2a7a3a', '#2a7a3a', '#2a7a3a'];
+  const n = cols.length, pw = (W - 30) / n;
+  for (let i = 0; i < n; i++) {
+    const px = 15 + i * pw;
+    x.fillStyle = cols[i]; x.fillRect(px + 2, H * 0.42, pw - 4, H * 0.5);
+    x.fillStyle = '#f2d9a6'; x.beginPath(); x.moveTo(px + 2, H * 0.42); x.lineTo(px + pw - 2, H * 0.42); x.lineTo(px + pw / 2, H * 0.32); x.fill();
+    x.fillStyle = cols[i] === '#2a7a3a' ? '#333' : cols[i]; x.beginPath(); x.moveTo(px + pw * 0.38, H * 0.355); x.lineTo(px + pw * 0.62, H * 0.355); x.lineTo(px + pw / 2, H * 0.32); x.fill();
+  }
+  x.fillStyle = 'rgba(255,255,255,0.9)'; x.fillRect(0, 0, W, H * 0.28);
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  fitText(x, s.brand, W * 0.9, 40); x.fillStyle = s.fg === '#ffe680' ? '#1a4a24' : s.fg; x.fillText(s.brand, W / 2, H * 0.14);
+}
+function drawCalc(x, s) {
+  const W = CELL, H = CELL;
+  x.fillStyle = '#3a3e44'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#b8c8a0'; x.fillRect(W * 0.12, H * 0.08, W * 0.76, H * 0.2);
+  x.fillStyle = '#2a3a1a'; x.font = '700 40px monospace'; x.textAlign = 'right'; x.textBaseline = 'middle'; x.fillText('1234567.', W * 0.84, H * 0.18);
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) {
+    x.fillStyle = c === 3 ? '#ff8a1a' : r === 0 ? '#9aa0a8' : '#eef0f2';
+    x.beginPath(); x.roundRect(W * 0.12 + c * W * 0.195, H * 0.34 + r * H * 0.125, W * 0.16, H * 0.1, 8); x.fill();
+  }
+}
+function drawCard(x, s) {
+  const W = CELL, H = CELL;
+  // 걸이용 종이 + 투명 플라스틱 안에 물건
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, s.bg[1]); g.addColorStop(1, s.bg[0]);
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(W / 2, H * 0.07, 22, 9, 0, 0, 7); x.fill();
+  x.fillStyle = 'rgba(40,40,40,0.55)'; x.beginPath(); x.ellipse(W / 2, H * 0.07, 16, 5, 0, 0, 7); x.fill();
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  fitText(x, s.brand, W * 0.86, 40); x.fillStyle = s.fg; x.fillText(s.brand, W / 2, H * 0.22);
+  x.fillStyle = 'rgba(255,255,255,0.55)'; x.beginPath(); x.roundRect(W * 0.14, H * 0.32, W * 0.72, H * 0.56, 22); x.fill();
+  x.strokeStyle = 'rgba(255,255,255,0.9)'; x.lineWidth = 4; x.stroke();
+  x.font = '110px sans-serif'; x.fillText(s.icon, W / 2, H * 0.62);
+  if (s.name) { fitText(x, s.name, W * 0.8, 22, 700); x.fillStyle = s.fg; x.fillText(s.name, W / 2, H * 0.94); }
+}
 function drawTag(x, s) {
   x.fillStyle = '#ffe23a'; x.fillRect(0, 0, 128, 64);
   x.fillStyle = '#d8231e'; x.fillRect(0, 0, 128, 16);
@@ -249,7 +361,7 @@ function colorBox(t, cx, cy, cz, w, h, d, col) {
   for (let k = 0; k < tmp.p.length; k += 3) t.v(tmp.p[k] + cx, tmp.p[k + 1] + cy - h / 2, tmp.p[k + 2] + cz, tmp.n[k], tmp.n[k + 1], tmp.n[k + 2], tmp.uv[k / 3 * 2], tmp.uv[k / 3 * 2 + 1], [tmp.c[k], tmp.c[k + 1], tmp.c[k + 2]]);
   for (const i of tmp.i) t.i.push(base + i);
 }
-const SOLID_UV = [0.5 / N, 1 - 0.5 / N];   // 0번 칸 (흰색)
+let SOLID_UV = [0.5 / N, 1 - 0.5 / N];   // 0번 칸 (흰색)
 
 // 회전체: prof = [[r, y, 'L'|color], ...] 아래→위
 function lathe(t, id, prof, seg, y0, y1) {

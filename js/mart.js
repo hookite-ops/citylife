@@ -8,7 +8,7 @@ import { SKUS, SECTION_SKUS, goodsMaterial, template, skuSize, GoodsBuilder, tag
 // 좌표: x -7..7, z -6..6, 정면(유리벽·출입문)은 +z
 const W = 14, D = 12, H = 3.0;
 
-function canvasTex(w, h, draw, repeat) {
+export function canvasTex(w, h, draw, repeat) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c);
@@ -17,7 +17,7 @@ function canvasTex(w, h, draw, repeat) {
   t.anisotropy = 4;
   return t;
 }
-function emojiSprite(emoji, size = 0.55, bg = 'rgba(15,20,28,0.85)') {
+export function emojiSprite(emoji, size = 0.55, bg = 'rgba(15,20,28,0.85)') {
   const t = canvasTex(128, 128, (x) => {
     x.fillStyle = bg; x.beginPath(); x.arc(64, 64, 58, 0, 7); x.fill();
     x.strokeStyle = 'rgba(255,255,255,0.8)'; x.lineWidth = 5; x.stroke();

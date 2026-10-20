@@ -35,6 +35,54 @@ export const PRODUCTS = [
   { id: 'icecone', name: '초코콘', icon: '🍦', price: 1800, cat: 'ice', hunger: 5, mood: 7 },
   { id: 'icecup', name: '딸기컵 아이스크림', icon: '🍨', price: 1500, cat: 'ice', hunger: 4, mood: 6 },
 ];
+// 문구랜드 상품 (cat: 진열 코너)  pages: 공책 쪽수 · pen: 필기구 · color: 채색 도구 · sketch: 스케치북 장수 · toy: 기분
+export const STAT_PRODUCTS = [
+  { id: 'st_note', name: '스프링 공책', icon: '📓', price: 1500, cat: 'snote', pages: 20, desc: '공책 20쪽 · 수업·공부 때 1쪽씩 써요' },
+  { id: 'st_notepack', name: '줄공책 5권 묶음', icon: '📚', price: 4000, cat: 'snote', pages: 100, desc: '공책 100쪽 · 묶음이라 더 싸요' },
+  { id: 'st_postit', name: '붙임쪽지', icon: '📝', price: 2000, cat: 'snote', postit: 1, desc: '중요한 것 메모 · 공부 효과 조금 더' },
+  { id: 'st_folder', name: 'A4 클리어 파일', icon: '📂', price: 1500, cat: 'snote', desc: '서류 정리용' },
+  { id: 'st_sketch', name: '스케치북 (20매)', icon: '🗒️', price: 3000, cat: 'sart', sketch: 20, desc: '집 책상에서 그림 그리기 20번' },
+  { id: 'st_colorp', name: '색연필 24색', icon: '🖍️', price: 6000, cat: 'sart', color: true, desc: '그림 그리기에 필요해요' },
+  { id: 'st_crayon', name: '크레파스 24색', icon: '🖍️', price: 5000, cat: 'sart', color: true, desc: '그림 그리기에 필요해요' },
+  { id: 'st_paint', name: '수채물감 18색', icon: '🎨', price: 8000, cat: 'sart', color: true, paint: true, desc: '그림 그리기 · 기분이 더 좋아져요' },
+  { id: 'st_glue', name: '딱풀', icon: '🧴', price: 1000, cat: 'sart', desc: '만들기 준비물' },
+  { id: 'st_pencils', name: '연필 12자루', icon: '✏️', price: 3000, cat: 'soffice', pen: true, desc: '필기구 · 공책과 함께 있으면 수업 집중' },
+  { id: 'st_calc', name: '계산기', icon: '🧮', price: 9000, cat: 'soffice', calc: true, desc: '회사 업무 미니게임 시간 +3초' },
+  { id: 'st_stapler', name: '스테이플러', icon: '📎', price: 4000, cat: 'soffice', desc: '서류 묶기' },
+  { id: 'st_pen3', name: '3색 볼펜', icon: '🖊️', price: 2000, cat: 'spen', pen: true, desc: '필기구 · 공책과 함께 있으면 수업 집중' },
+  { id: 'st_mech', name: '샤프 0.5', icon: '✒️', price: 3000, cat: 'spen', pen: true, desc: '필기구' },
+  { id: 'st_hili', name: '형광펜 5색', icon: '🖍️', price: 3500, cat: 'spen', hili: true, desc: '시험 점수 조금 더 (기말고사 +3점)' },
+  { id: 'st_eraser', name: '지우개', icon: '⬜', price: 500, cat: 'spen', desc: '깔끔하게' },
+  { id: 'st_scissors', name: '안전가위', icon: '✂️', price: 2500, cat: 'spen', desc: '만들기 준비물' },
+  { id: 'st_tape', name: '투명테이프', icon: '🎞️', price: 1500, cat: 'spen', desc: '만들기 준비물' },
+  { id: 'st_keyring', name: '인형 키링 (랜덤)', icon: '🧸', price: 5000, cat: 'spen', toy: 8, desc: '가방에 달면 기분 +8' },
+  { id: 'st_blocks', name: '블록 놀이 300피스', icon: '🧱', price: 15000, cat: 'stoy', toy: 18, desc: '집에서 조립 · 기분 +18' },
+  { id: 'st_slime', name: '슬라임', icon: '🫧', price: 3000, cat: 'stoy', toy: 6, desc: '말랑말랑 · 기분 +6' },
+  { id: 'st_spinner', name: '배틀 팽이', icon: '🌀', price: 8000, cat: 'stoy', toy: 11, desc: '슝슝 · 기분 +11' },
+  { id: 'st_car', name: '미니카', icon: '🏎️', price: 4500, cat: 'stoy', toy: 7, desc: '부릉부릉 · 기분 +7' },
+  { id: 'st_jjon', name: '쫀득이', icon: '🍬', price: 500, cat: 'ssnack', hunger: 4, mood: 4, desc: '추억의 간식' },
+  { id: 'st_star', name: '별사탕', icon: '⭐', price: 500, cat: 'ssnack', hunger: 2, mood: 4, desc: '추억의 간식' },
+  { id: 'st_jelly', name: '빨대젤리 10개입', icon: '🍭', price: 1000, cat: 'ssnack', hunger: 3, mood: 5, desc: '추억의 간식' },
+  { id: 'st_corn', name: '콘과자', icon: '🌽', price: 1000, cat: 'ssnack', hunger: 5, mood: 4, desc: '추억의 간식' },
+];
+export const STAT_CATS = {
+  snote: { name: '공책·노트', icon: '📓' }, sart: { name: '미술용품', icon: '🎨' }, soffice: { name: '사무용품', icon: '📎' },
+  spen: { name: '필기구·만들기', icon: '🖊️' }, stoy: { name: '장난감', icon: '🧸' }, ssnack: { name: '추억의 간식', icon: '🍬' },
+};
+// 뽑기 (캡슐 토이 · 스티커)
+export const GACHA = {
+  toy: { name: '캐릭터 뽑기', price: 1000, items: [
+    { id: 'g_cat', name: '고양이 키링', icon: '🐱', r: 'C' }, { id: 'g_dog', name: '강아지 키링', icon: '🐶', r: 'C' }, { id: 'g_bear', name: '곰돌이 키링', icon: '🐻', r: 'C' },
+    { id: 'g_rabbit', name: '토끼 키링', icon: '🐰', r: 'C' }, { id: 'g_frog', name: '개구리 키링', icon: '🐸', r: 'C' }, { id: 'g_duck', name: '오리 키링', icon: '🐥', r: 'C' }, { id: 'g_pig', name: '돼지 키링', icon: '🐷', r: 'C' },
+    { id: 'g_panda', name: '판다 피규어', icon: '🐼', r: 'R' }, { id: 'g_fox', name: '여우 피규어', icon: '🦊', r: 'R' }, { id: 'g_penguin', name: '펭귄 피규어', icon: '🐧', r: 'R' }, { id: 'g_otter', name: '수달 피규어', icon: '🦦', r: 'R' },
+    { id: 'g_unicorn', name: '황금 유니콘', icon: '🦄', r: 'L' },
+  ] },
+  sticker: { name: '스티커 뽑기', price: 500, items: [
+    { id: 's_star', name: '반짝 별 스티커', icon: '🌟', r: 'C' }, { id: 's_heart', name: '하트 스티커', icon: '💖', r: 'C' }, { id: 's_rainbow', name: '무지개 스티커', icon: '🌈', r: 'C' },
+    { id: 's_cloud', name: '구름 스티커', icon: '☁️', r: 'C' }, { id: 's_rocket', name: '로켓 스티커', icon: '🚀', r: 'R' }, { id: 's_crown', name: '왕관 스티커', icon: '👑', r: 'R' }, { id: 's_dragon', name: '홀로그램 용 스티커', icon: '🐉', r: 'L' },
+  ] },
+};
+PRODUCTS.push(...STAT_PRODUCTS);
 export const P = Object.fromEntries(PRODUCTS.map(p => [p.id, p]));
 
 export const CATS = {

@@ -1,3 +1,4 @@
+import { studyBonus } from './statgame.js';
 import { won } from './config.js';
 import * as ST from './state.js';
 import { $, toast, openSheet, closeSheet, bigMsg, fade, wait, row, bindActs } from './ui.js';
@@ -212,7 +213,9 @@ export class SchoolGame {
     U.attended[slot.key] = true;
     if (slot.late) toast('😅 지각했어요 (점수 조금 감점)', 'bad');
     const subj = U.major === 'edu' ? '교육학' : '경영학';
-    const score = await this.quiz({ title: `📖 ${subj} 강의`, sub: '교수님: "자, 오늘 배운 거 확인해 볼게요."', qs: questions('univ', 5, 0.25), sleepy: S.energy < 30 });
+    const sb = studyBonus(S);
+    if (sb.ready) S.notePages--;
+    const score = await this.quiz({ title: `📖 ${subj} 강의`, sub: '교수님: "자, 오늘 배운 거 확인해 볼게요."' + (sb.ready ? '<br>📓 공책에 필기해 둬서 문제 풀 시간이 늘었어요' : ''), qs: questions('univ', 5, 0.25), sleepy: S.energy < 30, perQ: 14 + (sb.ready ? 5 : 0) + (sb.postit ? 1 : 0) });
     await this.skip(Math.max(0, slot.start + 120 - S.minutes), 'work');
     U.sessions++; U.scores.push(Math.max(0, score - (slot.late ? 0.1 : 0)));
     this.stand();
@@ -224,11 +227,13 @@ export class SchoolGame {
     const U = this.U, S = this.S;
     this.sitAt(this.room.nearestFreeSeat(this.c.player.pos));
     U.attended[slot.key] = true;
-    const ex = await this.quiz({ title: '📝 기말고사', sub: '시간 안에 풀어요. 도서관 공부를 많이 했으면 점수에 도움이 돼요', qs: questions('univ', 8, 0.35), perQ: 15 });
+    const sb = studyBonus(S);
+    if (sb.ready) S.notePages--;
+    const ex = await this.quiz({ title: '📝 기말고사', sub: '시간 안에 풀어요. 도서관 공부를 많이 했으면 점수에 도움이 돼요' + (sb.ready ? '<br>📓 정리한 공책 덕분에 시간이 넉넉해요' : '') + (sb.hili ? ' · 🖍️ 형광펜 +3점' : ''), qs: questions('univ', 8, 0.35), perQ: 15 + (sb.ready ? 5 : 0) });
     await this.skip(Math.max(0, slot.start + 120 - S.minutes), 'work');
     this.stand();
     const avg = U.scores.reduce((a, b) => a + b, 0) / Math.max(1, U.scores.length);
-    const total = Math.min(1, 0.12 + avg * 0.33 + ex * 0.5 + Math.min(0.1, U.study * 0.02));
+    const total = Math.min(1, 0.12 + avg * 0.33 + ex * 0.5 + Math.min(0.1, U.study * 0.02) + (sb.hili ? 0.03 : 0));
     const g = total >= 0.9 ? 'A+' : total >= 0.85 ? 'A' : total >= 0.8 ? 'B+' : total >= 0.74 ? 'B' : total >= 0.68 ? 'C+' : total >= 0.62 ? 'C' : total >= 0.55 ? 'D' : 'F';
     U.grades.push(g);
     U.enrolled = false;
