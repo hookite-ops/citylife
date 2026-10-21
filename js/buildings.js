@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GB, seeded } from './geo.js';
+import { SHOP_NAMES, VACANT_SLOT, LOBBY_SLOT } from './tenants.js';
+import { describe, tenantMap, lobbyUnit, upperUnits } from './bplan.js';
 
 // ───────── 건물을 실제 도형으로 만드는 생성기 ─────────
 // 텍스처 없이: 벽·슬래브·창틀은 꼭짓점 색 상자, 유리는 반투명 면, 유리 뒤에는 방(실내 벽) 면.
@@ -10,16 +12,7 @@ const LIT_OFFICE = [[0.92, 0.96, 1], [0.98, 0.99, 1], [0.88, 0.93, 1]];
 const LIT_SHOP = [[1, 0.97, 0.92], [1, 0.92, 0.8], [0.95, 0.98, 1], [1, 0.88, 0.7]];
 const DARK = [[0.13, 0.14, 0.16], [0.18, 0.17, 0.16], [0.1, 0.11, 0.13], [0.52, 0.47, 0.4], [0.62, 0.6, 0.56], [0.24, 0.26, 0.3]];
 
-export const SHOP_NAMES = [
-  ['정성김밥', '#c0392b'], ['바삭치킨', '#e67e22'], ['장터국밥', '#6d4c2f'], ['엄마손분식', '#d35400'], ['커피한잔', '#3e2723'], ['달콤베이커리', '#ad6f3b'],
-  ['스마일치과', '#1e88e5'], ['튼튼소아과', '#2e7d32'], ['푸른안과', '#00838f'], ['한빛세탁', '#3949ab'], ['반짝네일', '#d81b60'], ['멍냥동물병원', '#6a1b9a'],
-  ['쑥쑥수학학원', '#1565c0'], ['글로벌영어', '#283593'], ['꿈틀미술', '#ef6c00'], ['라온피아노', '#5d4037'], ['태극태권도', '#b71c1c'], ['한빛은행', '#0d47a1'],
-  ['우리동네마트', '#2e7d32'], ['싱싱과일', '#558b2f'], ['도담꽃집', '#c2185b'], ['다온안경', '#37474f'], ['온새미약국', '#00897b'], ['빛고을헤어', '#4527a0'],
-  ['나래독서실', '#455a64'], ['스터디카페 몰입', '#263238'], ['코인노래방', '#8e24aa'], ['PC존', '#212121'], ['한빛한의원', '#795548'], ['미래이비인후과', '#0277bd'],
-  ['고기굽는집', '#bf360c'], ['면사랑', '#f9a825'], ['초밥왕', '#1a237e'], ['마라공방', '#c62828'], ['피자마을', '#e53935'], ['동네책방', '#4e342e'],
-  ['한빛부동산', '#1d3b6e'], ['새봄요가', '#00695c'], ['밝은내과', '#1976d2'], ['365 정형외과', '#0d47a1'], ['아이조아 키즈카페', '#f57f17'], ['한빛사진관', '#6a1b9a'],
-  ['한빛휴대폰', '#e53935'], ['빨래방', '#0288d1'], ['참치정육', '#ad1457'], ['한빛떡집', '#8d6e63'], ['반찬가게', '#689f38'], ['디저트39', '#ec407a'],
-];
+export { SHOP_NAMES };
 
 // 간판 아틀라스 (글자만 텍스처로)
 let atlasTex = null;
@@ -28,11 +21,13 @@ function signAtlas() {
   if (atlasTex) return atlasTex;
   const c = document.createElement('canvas'); c.width = SLOT_W * COLS; c.height = SLOT_H * ROWS;
   const x = c.getContext('2d');
-  SHOP_NAMES.forEach(([name, bg], i) => {
+  const all = [...SHOP_NAMES, ['임대 문의', '#ffffff', '', 0, '#c62828'], ['ENTRANCE · 출입구', '#2a2d33']];
+  all.forEach(([name, bg, , , fgc], i) => {
     const sx = (i % COLS) * SLOT_W, sy = Math.floor(i / COLS) * SLOT_H;
     x.fillStyle = bg; x.fillRect(sx, sy, SLOT_W, SLOT_H);
     x.fillStyle = 'rgba(255,255,255,0.25)'; x.fillRect(sx, sy + SLOT_H - 6, SLOT_W, 3);
-    x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = fgc || '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    if (fgc) { x.strokeStyle = fgc; x.lineWidth = 4; x.strokeRect(sx + 3, sy + 3, SLOT_W - 6, SLOT_H - 6); }
     let fs = 38; x.font = `800 ${fs}px "Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif`;
     while (x.measureText(name).width > SLOT_W - 24 && fs > 18) { fs -= 2; x.font = `800 ${fs}px "Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif`; }
     x.fillText(name, sx + SLOT_W / 2, sy + SLOT_H / 2 + 2);
@@ -307,8 +302,10 @@ export function buildNear(B, s) {
       if (s.floors >= 3 && R() < 0.7) {
         const f = F[streets[0]], u = R() < 0.5 ? 1.2 : f.L - 1.2;
         rgb(B.solid, [0.15, 0.15, 0.16]); fbox(B.solid, f, u - 0.08, u + 0.08, s.y0 + gh + 0.5, s.y0 + gh + Math.min(s.floors, 4) * s.fh, 0, -1.2);
+        const tmv = tenantSlots(s);
         for (let k = 0; k < Math.min(s.floors, 4) - 0.5; k++) {
-          const slot = Math.floor(R() * SHOP_NAMES.length);
+          let slot = Math.floor(R() * SHOP_NAMES.length);
+          if (tmv) { const t = tmv.get(`${k + 2}:0`); slot = t ? (t.vacant ? VACANT_SLOT : t.slot) : slot; }
           const y = s.y0 + gh + 0.7 + k * s.fh;
           for (const side of [1, -1]) fsign(B.sign, sideFace(f, u, side), 0.05, 1.05, y, y + s.fh * 0.7, 0, slot);
         }
@@ -397,8 +394,14 @@ function sideFace(f, u, side) {
 }
 function faceXYZ(f, u, y, d) { const p = fpt(f, u, d); return [p[0], y, p[1]]; }
 
+// 건물 가게 (실내와 같은 규칙)
+function tenantSlots(s) {
+  if (!s.bkind || s.special) return null;
+  try { const Bd = describe(s, { kind: s.bkind, name: s.bname, towers: s.towers }); return tenantMap(Bd); } catch (e) { return null; }
+}
 // 1층 상가 줄 (가게 여러 칸)
 function shopRow(B, f, R, y0, gh, s) {
+  const tm = tenantSlots(s), li = s.bkind ? lobbyUnit(s) : -1;
   const L = f.L;
   const n = Math.max(1, Math.round(L / (s.unitW || 7)));
   const uw = L / n;
@@ -431,7 +434,9 @@ function shopRow(B, f, R, y0, gh, s) {
     fbox(B.solid, f, u0 + 0.1, u1 - 0.1, y0 + h + 0.02, y0 + h + 0.14, 0.1, -0.9);
     if (!special) {
       rgb(B.solid, [0.12, 0.12, 0.13]); fbox(B.solid, f, u0 + 0.2, u1 - 0.2, y0 + h + 0.25, y0 + gh - 0.15, 0.1, -0.2);
-      fsign(B.sign, f, u0 + 0.3, u1 - 0.3, y0 + h + 0.32, y0 + gh - 0.22, -0.21, (s.signBase + i * 7) % SHOP_NAMES.length);
+      const t = tm?.get(`1:${i}`);
+      const slot = i === li ? LOBBY_SLOT : t ? (t.vacant ? VACANT_SLOT : t.slot) : (s.signBase + i * 7) % SHOP_NAMES.length;
+      fsign(B.sign, f, u0 + 0.3, u1 - 0.3, y0 + h + 0.32, y0 + gh - 0.22, -0.21, slot);
     }
   }
   // 위쪽 벽 띠

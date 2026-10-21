@@ -23,6 +23,10 @@ import { Weather } from './weather.js';
 import { OUTFITS, OUTFIT_CATS, SKIN_TONES, ensureLook, wear, swatch } from './outfits.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 import { runMeal, pickMealSheet } from './meal.js';
+import { BldgGame } from './bldggame.js';
+import { tenantMap as tenantMapFn } from './bplan.js';
+import { ShopGame, menuFood } from './shopgame.js';
+import { PRODUCTS } from './products.js';
 import { ensureWallet, paySheet, atmSheet, openStatus, closedNotice, hoursText, ClosingWatch, HOURS } from './commerce.js';
 
 // ───────── 품질 ─────────
@@ -164,6 +168,24 @@ async function boot() {
   statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, checkout, payCash, persist, setBusy: (v) => { busy = v; }, onBuy: () => missions.event('buy_stat'), onGacha: () => missions.event('gacha') });
   statSite = city.sites.find(s => s.kind === 'stat');
   if (statSite) statSite.anchor.add(stat.root);
+  bldg = new BldgGame({
+    get S() { return S; }, city, scene, player, human, audio,
+    enterSite: (site, view, lx, lz, hd) => { enterSite(site, 'bldg', view, lx, lz); if (hd !== undefined) { player.heading = hd; cam.yaw = hd + Math.PI; } },
+    setRoom: (v) => { room = v; }, setHeading: (h) => { player.heading = h; cam.yaw = h + Math.PI; },
+    leaveSite: () => leaveSite(), setBusy: (v) => { busy = v; }, persist: () => persist(), updateHUD: (f) => updateHUD(f),
+    passTime: (m, md) => ST.passTime(S, m, md || 'idle'),
+    shop: () => shopGame,
+  });
+  shopGame = new ShopGame({
+    get S() { return S; }, audio, player, human, missions,
+    checkout: (t, o, f) => checkout(t, o, f), payCash: (a) => payCash(a), persist: () => persist(),
+    passTime: (m, md) => ST.passTime(S, m, md || 'idle'), eatMeal: (ids, o) => eatMeal(ids, o), foodInfo,
+    setBusy: (v) => { busy = v; }, restyle: () => human.restyle(S.look),
+    atm: (fee) => atmSheet(walletCtx(), { name: '은행 ATM', fee: fee ?? 0 }),
+    martGoods: () => PRODUCTS.filter(p => p.price),
+    applyGoods: (key, g, n) => applyGoods(key, g, n),
+    nearestSeat: (z) => nearestSeat(z), seat: (spot) => seatPlayer(spot),
+  });
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
   // 타이틀 배경용 카메라 위치
@@ -446,6 +468,20 @@ function frame(now) {
       stat.updateWalls(localCam);
       if (!paused) { const a = statGame.action(stat.zoneAt(player.pos)); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
       audio.ambient(false, true);
+    } else if (mode === 'bldg') {
+      if (!paused && !seated) updateRoomWalking(dt);
+      else if (seated) { applyLook(readInput()); human.root.position.copy(player.pos); }
+      if (!paused) shopGame.update(dt);
+      bldg.frame(dt, paused);
+      if (mode === 'bldg') {
+        const pl = room.plan;
+        roomAmb.intensity = pl.roof || pl.exitOpen ? 0.2 : 0.62 + sky.night * 0.3;
+        roomLight.intensity = pl.roof ? 0 : 1.3 + sky.night * 0.4;
+        if (!pl.roof && !pl.exitOpen) sky.sun.intensity *= 0.3;
+        updateRoomCamera(dt);
+        if (!paused) { const a = bldg.action(); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
+      }
+      audio.ambient(sky.night > 0.5, mode === 'bldg' && !room?.plan?.roof);
     } else if (mode === 'school') {
       if (!paused) updateRoomWalking(dt);
       school.update(paused ? 0 : dt, player.pos);
@@ -470,6 +506,7 @@ function persist() {
   }
   else if (mode === 'school' && schoolEntrance) S.player = { x: schoolEntrance.x + schoolEntrance.nx * 1.4, z: schoolEntrance.z + schoolEntrance.nz * 1.4, h: schoolEntrance.face, inside: false };
   else if (mode === 'stat' && statEntrance) S.player = { x: statEntrance.x + statEntrance.nx * 1.4, z: statEntrance.z + statEntrance.nz * 1.4, h: statEntrance.face, inside: false };
+  else if (mode === 'bldg' && bldg?.entryDoor) { const d = bldg.entryDoor; S.player = { x: d.x, z: d.z, h: Math.atan2(d.nx, d.nz), inside: false }; }
   else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x + martEntrance.nx * 1.4, z: martEntrance.z + martEntrance.nz * 1.4, h: martEntrance.face, inside: false };
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
@@ -765,6 +802,8 @@ function updateCityInteract() {
     if (dd < bd) { bd = dd; best = e; }
   }
   if (best) { setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best)); return; }
+  const bdr = city.nearestBDoor(p.x, p.z, 1.7);
+  if (bdr) { setAct(bldg.doorLabel(bdr), () => bldg.tryEnter(bdr)); return; }
   const ped = peds.nearest(p, 2.2);
   if (ped) { setAct(`💬 ${ped.name}에게 말 걸기`, () => { talkingPed = ped; ped.talk = 999; missions.talkSheet(ped, ST.hour(S) % 24); }); return; }
   setAct(null);
@@ -901,6 +940,8 @@ function updateHUD(force) {
     html = `🙏 <b>${S.errand.item}</b> → ${t.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span><small>${S.errand.from}의 부탁 · 보상 ${won(S.errand.money)}</small>`;
   } else if (S.waypoint) {
     html = `📍 ${S.waypoint.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span>`;
+  } else if (mode === 'bldg') {
+    html = bldg.hudText();
   } else if (mode === 'stat') {
     html = statGame.hudText();
   } else if (mode === 'mart') {
@@ -1021,6 +1062,7 @@ function tabs(b) {
 }
 // 음식 정보 (편의점 상품 · 데운 음식(#hot) · 직접 만든 요리(이름@맛@추가재료))
 function foodInfo(id) {
+  if (id.includes(':')) { const m = menuFood(id); if (m) return { ...m, icon: m.icon || '🍽️' }; }
   if (id.includes('@')) {
     const [d, q, ex] = id.split('@');
     const b = DISHES[d], qq = (+q) / 100, extras = ex ? ex.split(',').filter(Boolean).length : 0;
@@ -1047,6 +1089,50 @@ function eatFood(id, { minutes = 10, moodBonus = 0 } = {}) {
   checkGoals();
   updateHUD(true);
   persist();
+}
+
+// 가게에서 산 물건
+function applyGoods(key, g, n) {
+  if (!g) return;
+  const inv = S.inventory;
+  S.items = S.items || {};
+  if (key === 'mart') { if (g.ing) for (const [k, v] of Object.entries(g.ing)) inv.ing[k] = (inv.ing[k] || 0) + v * n; else inv.food[g.id] = (inv.food[g.id] || 0) + n; return; }
+  if (g.food) { const id = `g:${key}:${g.id}`; inv.food[id] = (inv.food[id] || 0) + (g.n || 1) * n; return; }
+  if (g.ing) { for (const [k, v] of Object.entries(g.ing)) inv.ing[k] = (inv.ing[k] || 0) + v * n; return; }
+  if (g.cure === 'cold' || g.id === 'coldmed') { S.meds = (S.meds || 0) + 3 * n; return; }
+  if (g.upgrade === 'camera') { S.phonePro = true; toast('📱 새 폰이에요! 카메라 화질이 좋아졌어요', 'good'); }
+  if (g.id === 'digest') S.mood = ST.clamp(S.mood + 3);
+  if (g.id === 'hangover') S.energy = ST.clamp(S.energy + 8);
+  if (g.id === 'case') S.mood = ST.clamp(S.mood + 3);
+  if (g.pet) { S.petItems = S.petItems || {}; S.petItems[g.pet] = (S.petItems[g.pet] || 0) + (g.n || 1) * n; return; }
+  S.items[g.id] = (S.items[g.id] || 0) + n;
+}
+// 가게 의자에 앉기
+let seated = null;
+function nearestSeat(z) {
+  const v = room; if (!v?.npcSpots) return null;
+  let best = null, bd = 9;
+  for (const sp of v.npcSpots) {
+    if (sp.kind !== 'seat') continue;
+    if (sp.x < z.x0 - 0.6 || sp.x > z.x1 + 0.6 || sp.z < z.z0 - 0.6 || sp.z > z.z1 + 0.6) continue;
+    if (bldg.npcs.some(n => Math.hypot(n.pos.x - sp.x, n.pos.z - sp.z) < 0.3)) continue;
+    const d = Math.hypot(sp.x - player.pos.x, sp.z - player.pos.z);
+    if (d < bd) { bd = d; best = sp; }
+  }
+  return best;
+}
+function seatPlayer(spot) {
+  if (spot) {
+    seated = { back: player.pos.clone() };
+    player.pos.set(spot.x, 0, spot.z); player.speed = 0;
+    player.heading = spot.rot; cam.yaw = spot.rot + Math.PI; cam.pitch = 0.35;
+    human.root.position.set(spot.x, 0.02, spot.z); human.root.rotation.y = player.heading;
+    human.setPose('sit');
+  } else if (seated) {
+    human.setPose('stand');
+    player.pos.copy(seated.back);
+    seated = null;
+  }
 }
 
 // 한 입씩 먹기 (상에 올린 음식들)
@@ -1341,6 +1427,7 @@ function checkWalkIn() {
   }
 }
 let lockedToast = 0;
+let bldg = null, shopGame = null;
 function enterSite(s, kind, r, lx, lz) {
   if (inCar) exitCar();
   s.anchor.updateWorldMatrix(true, false);
@@ -1389,7 +1476,7 @@ function enterSite(s, kind, r, lx, lz) {
 function leaveSite() {
   const s = site;
   if (!s) { leaveRoom(); return; }
-  if (s.kind !== 'tower' && player.pos.z < s.D / 2 + 0.9) player.pos.z = s.D / 2 + 0.9;
+  if (s.kind !== 'tower' && s.kind !== 'bldg' && player.pos.z < s.D / 2 + 0.9) player.pos.z = s.D / 2 + 0.9;
   s.anchor.updateWorldMatrix(true, false);
   const w = s.anchor.localToWorld(player.pos.clone());
   player.pos.set(w.x, city.groundY(w.x, w.z), w.z);
@@ -1422,7 +1509,7 @@ function leaveRoom() {
 // 문으로 걸어서 나가기
 let exitCool = 0;
 function checkWalkOut() {
-  if (!site || site.kind === 'tower' || busy) return;
+  if (!site || site.kind === 'tower' || site.kind === 'bldg' || busy) return;
   if (player.pos.z < site.D / 2 + 0.3) return;
   if (elapsed < exitCool) { player.pos.z = site.D / 2 + 0.25; return; }
   exitCool = elapsed + 1.5;
@@ -1561,7 +1648,8 @@ function updateRoomCamera(dt) {
   if (site) {
     // 실내 조명 (천장 가운데)
     site.anchor.updateWorldMatrix(true, false);
-    roomLight.position.set(0, 2.45, 0); site.anchor.localToWorld(roomLight.position);
+    if (mode === 'bldg') roomLight.position.set(player.pos.x, (room?.plan?.ch || 2.7) - 0.25, player.pos.z); else roomLight.position.set(0, 2.45, 0);
+    site.anchor.localToWorld(roomLight.position);
   }
   if (firstPerson()) {
     human.root.visible = false;
@@ -1880,6 +1968,7 @@ async function faint() {
   if (martGame.onShift) await martGame.endShift(true);
   if (inCar) { pcar.speed = 0; exitCar(); }
   if (mode === 'mart') { mart.clearNpcs(); leaveSite(); }
+  if (mode === 'bldg') bldg.exit(null);
   if (mode === 'school') { if (schoolGame.duty) await schoolGame.clockOut(true); leaveSite(); }
   await fade(true);
   bigMsg('😵 기절했어요…', '구급차에 실려 갔어요. 병원비 50,000원', 3000);
@@ -2054,7 +2143,8 @@ async function taxi(e) {
   closePhone();
   busy = true;
   await fade(true);
-  if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveSite(); }
+  if (mode === 'bldg') bldg.exit(null);
+  else if (mode !== 'city') { if (mode === 'mart') mart.clearNpcs(); leaveSite(); }
   ST.passTime(S, 5 + d / 60, 'idle');
   player.pos.set(e.x + e.nx * 1.6, 0.18, e.z + e.nz * 1.6);
   player.heading = e.face + Math.PI;
@@ -2110,4 +2200,4 @@ boot().catch(err => { console.error(err); window.__bootFailed = true; window.__b
 
 // 디버그/테스트용
 window.__game = { get missions() { return missions; }, get peds() { return peds; }, get stat() { return stat; }, get statGame() { return statGame; }, enterStat: () => walkInto(city.sites.find(s => s.kind === 'stat')), get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
-  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), get bldg() { return bldg; }, tenantMap: (B) => tenantMapFn(B), get shopGame() { return shopGame; }, get room() { return room; }, eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

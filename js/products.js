@@ -102,6 +102,9 @@ export const INGREDIENTS = {
   sausage: { name: '소시지', icon: '🌭' },
   tuna: { name: '참치캔', icon: '🥫' },
   mandu: { name: '군만두', icon: '🥟' },
+  pork: { name: '삼겹살', icon: '🥓' },
+  beef: { name: '소고기', icon: '🥩' },
+  chicken: { name: '생닭', icon: '🍗' },
 };
 
 // 직접 만든 음식 (먹으면 효과)

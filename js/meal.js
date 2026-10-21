@@ -9,6 +9,7 @@ const ID_TAGS = {
   icebar: 'dessert', icecone: 'dessert', icecup: 'dessert',
 };
 export function foodTag(id, f) {
+  if (f?.tag) return f.tag;
   const base = id.replace('#hot', '');
   if (ID_TAGS[base]) return ID_TAGS[base];
   if (f?.cat === 'drink') return 'drink';
@@ -16,9 +17,25 @@ export function foodTag(id, f) {
   if (/라면|국수|우동|면/.test(f?.name || '')) return 'noodle';
   return 'meal';
 }
-const isDrink = (t) => t === 'drink' || t === 'milk';
+const isDrink = (t) => t === 'drink' || t === 'milk' || t === 'alcohol';
 // 같이 먹으면 좋은 조합
 const COMBOS = [
+  { a: 'meat', b: 'veg', mood: 6, msg: '🥬🥩 상추에 쌈 싸 먹기!' },
+  { a: 'meat', b: 'alcohol', mood: 5, msg: '🥩🍶 캬~ 고기엔 한 잔' },
+  { a: 'meat', b: 'meal', mood: 4, msg: '🥩🍲 고기 먹고 된장찌개에 밥' },
+  { a: 'chicken', b: 'alcohol', mood: 8, msg: '🍗🍺 치맥은 진리!' },
+  { a: 'chicken', b: 'drink', mood: 4, msg: '🍗🥤 치킨엔 콜라' },
+  { a: 'chicken', b: 'veg', mood: 2, msg: '🍗 치킨무로 입가심' },
+  { a: 'pizza', b: 'drink', mood: 4, msg: '🍕🥤 피자엔 콜라' },
+  { a: 'pizza', b: 'veg', mood: 2, msg: '🍕🥒 피클 한 입' },
+  { a: 'burger', b: 'fries', mood: 4, msg: '🍔🍟 버거엔 감튀' },
+  { a: 'fries', b: 'drink', mood: 2, msg: '🍟🥤 감튀엔 콜라' },
+  { a: 'noodle', b: 'veg', mood: 3, msg: '🍜🟨 면엔 단무지 · 김치' },
+  { a: 'bunsik', b: 'rice', mood: 6, msg: '🌶️🍙 떡볶이에 김밥 찍먹!' },
+  { a: 'bunsik', b: 'noodle', mood: 4, msg: '🌶️🍜 분식 세트' },
+  { a: 'meal', b: 'veg', mood: 3, msg: '🍲🥬 밥이랑 반찬 한 입' },
+  { a: 'dessert', b: 'drink', mood: 5, msg: '🍰☕ 커피엔 디저트' },
+  { a: 'bread', b: 'drink', mood: 4, msg: '🥐☕ 빵이랑 커피' },
   { a: 'noodle', b: 'rice', mood: 5, msg: '🍜🍙 라면엔 삼각김밥이죠!' },
   { a: 'noodle', b: 'meal', mood: 3, msg: '🍜🍱 국물이랑 밥, 든든해요' },
   { a: 'bread', b: 'milk', mood: 5, msg: '🍞🍼 빵이랑 우유, 최고의 조합!' },

@@ -3,6 +3,8 @@ import { N, ROAD, MEDIAN, SIDEWALK, ROADS, STOP, HALF, blockRect, hasEdge, nodeE
 import { GB, seeded } from './geo.js';
 import * as T from './textures.js';
 import { Bld, buildNear, buildMid, buildBox, makeMaterials, specH, faces } from './buildings.js';
+import { describe, entrancesOf } from './bplan.js';
+import { TYPES } from './tenants.js';
 
 // ───────── 한빛신도시 (실제 크기, 약 2.9km) ─────────
 // 행 j: 북→남, 열 i: 서→동
@@ -110,7 +112,7 @@ export class City {
       ['도로와 인도를 까는 중', () => { this.buildGround(); this.buildMarkings(); }],
       ['호수공원을 꾸미는 중', () => this.buildLakePark()],
       ['가로등과 신호등을 세우는 중', () => { this.buildStreetFurniture(); this.buildSignals(); }],
-      ['건물을 짓는 중', () => { this.assignChunks(); this.flushStatic(); this.buildFarAll(); }],
+      ['건물을 짓는 중', () => { this.assignChunks(); this.flushStatic(); this.buildFarAll(); this.buildBldgs(); }],
       ['가게와 집 안을 꾸미는 중', () => this.buildSites()],
       ['도시 외곽을 그리는 중', () => { this.buildOutskirts(); this.buildRings(); this.finishGrid(); }],
     ];
@@ -238,20 +240,21 @@ export class City {
         if (s.z1 > shopSpot.z0 - 6 && s.x1 > shopSpot.x0 - 4) continue;
         blk.specs.push(s); towers.push(s);
         this.doors.push({ x: (s.x0 + s.x1) / 2, z: s.z0 - 3, name: `${blk.name} ${100 + towers.length}동` });
+        s.bkind = 'apt'; s.bname = `${blk.name} ${100 + towers.length}동`;
       }
     }
     if (aptHome && towers.length) {
       // 우리 아파트: 남쪽 줄, 가운데에 가장 가까운 동의 12층
       let t = towers[0];
       for (const b of towers) { if (b.z0 > t.z0 + 1 || (Math.abs(b.z0 - t.z0) < 4 && Math.abs((b.x0 + b.x1) / 2 - r.cx) < Math.abs((t.x0 + t.x1) / 2 - r.cx))) t = b; }
-      t.site = 'apt'; t.floors = Math.max(t.floors, 20);
+      t.site = 'apt'; t.floors = Math.max(t.floors, 20); t.bkind = null;
       this.aptHomeTower = t;
       const dong = 100 + towers.indexOf(t) + 1;
       this.addEntrance({ ...SP.home, homeId: 'apt', name: `우리집 · ${blk.name} ${dong}동 1204호` }, t, 'N', (t.x1 - t.x0) / 2, { homeId: 'apt', elevator: true });
       this.parking.apt = this.curbSpot({ x0: t.x0, x1: t.x1, z0: r.z0, z1: r.z0 + 1 }, 'N', 10);
     }
     // 단지 상가
-    blk.specs.push({ type: 'shop', x0: shopSpot.x0, x1: shopSpot.x0 + 32, z0: shopSpot.z0, z1: shopSpot.z0 + 16, y0: Y0, floors: 1, fh: 3.4, groundH: 4.6, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], seed: blk.seed * 100 + 90, front: 'S', streets: ['S'], signBase: Math.floor(R() * 48), unitW: 6.5 });
+    blk.specs.push({ type: 'shop', x0: shopSpot.x0, x1: shopSpot.x0 + 32, z0: shopSpot.z0, z1: shopSpot.z0 + 16, y0: Y0, floors: 1, fh: 3.4, groundH: 4.6, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], seed: blk.seed * 100 + 90, front: 'S', streets: ['S'], signBase: Math.floor(R() * 48), unitW: 6.5, bkind: 'shop', bname: blk.name + ' 상가' });
     const st = this.static;
     st.grass.top(r.x0 + SIDEWALK, r.z0 + SIDEWALK, r.x1 - SIDEWALK, r.z1 - SIDEWALK, Y0 + 0.02, 6, 6);
     for (const s of towers) st.pave.top(s.x0 - 3, s.z0 - 6, s.x1 + 3, s.z0 - 1, Y0 + 0.035, 4, 4);
@@ -333,7 +336,7 @@ export class City {
     lots.forEach((lot, k) => {
       const streets = [lot.front]; if (lot.west) streets.push('W'); if (lot.east) streets.push('E');
       const spId = spAt[k] || null;
-      const shop = (a, b, fl, seed) => blk.specs.push({ type: 'shop', x0: a, x1: b, z0: lot.z0, z1: lot.z1, y0: Y0, floors: fl, fh: 3.4, groundH: 4.6, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], seed, front: lot.front, streets: [lot.front], signBase: Math.floor(R() * 48), unitW: 6.5 });
+      const shop = (a, b, fl, seed) => blk.specs.push({ type: 'shop', x0: a, x1: b, z0: lot.z0, z1: lot.z1, y0: Y0, floors: fl, fh: 3.4, groundH: 4.6, color: SHOP_COLORS[Math.floor(R() * SHOP_COLORS.length)], seed, front: lot.front, streets: [lot.front], signBase: Math.floor(R() * 48), unitW: 6.5, bkind: 'shop', bname: this.placeName(R, 'shop') });
       if (spId === 'mart' || spId === 'stat') {
         // 편의점 · 문구점: 실제 크기 실내 공간이 들어가는 건물
         const front = lot.front, cx = (lot.x0 + lot.x1) / 2;
@@ -367,7 +370,9 @@ export class City {
           this.parkedSpots.push({ x: f.p[0] + f.t[0] * (f.L / 2 + du * f.L) - f.n[0] * 8, z: f.p[1] + f.t[1] * (f.L / 2 + du * f.L) - f.n[1] * 8, rot: Math.atan2(f.t[0], f.t[1]) + 0.5, showroom: true, noCollide: true });
         }
       } else {
-        this.doors.push({ x: f.p[0] + f.t[0] * f.L / 2 + f.n[0] * 1.8, z: f.p[1] + f.t[1] * f.L / 2 + f.n[1] * 1.8, name: this.placeName(R, 'shop') });
+        const nm = this.placeName(R, 'shop');
+        this.doors.push({ x: f.p[0] + f.t[0] * f.L / 2 + f.n[0] * 1.8, z: f.p[1] + f.t[1] * f.L / 2 + f.n[1] * 1.8, name: nm });
+        s.bkind = 'shop'; s.bname = nm;
         if (lot.outer && R() < 0.35) this.parkedSpots.push(this.curbSpot(s, s.front, f.L * (0.3 + R() * 0.4)));
       }
     });
@@ -386,7 +391,9 @@ export class City {
       const tw = 32 + R() * 8, td = 28 + R() * 6;
       const s = { type: 'office', x0: sx, x1: sx + tw, z0: sz, z1: sz + td, y0: Y0, floors: isHq ? 48 : 14 + Math.floor(R() * 26), fh: 3.9, seed: blk.seed * 100 + k, spandrel: sp, antenna: isHq || R() < 0.25, crown: 4 + R() * 4, front: k < 2 ? 'N' : 'S' };
       blk.specs.push(s);
-      this.doors.push({ x: sx + tw / 2, z: k < 2 ? sz - 2 : sz + td + 2, name: this.placeName(R, 'office') });
+      const onm = isHq ? '한빛그룹 본사' : this.placeName(R, 'office');
+      this.doors.push({ x: sx + tw / 2, z: k < 2 ? sz - 2 : sz + td + 2, name: onm });
+      s.bname = onm; s.bkind = isHq ? null : 'office';
       if (isHq) {
         this.addEntrance(SP.office, s, 'S', tw / 2);
         this.addSign(SP.office, s, 'S', tw / 2, Y0 + 5.5, 1.6);
@@ -394,7 +401,7 @@ export class City {
         this.parking.office = this.curbSpot(s, 'S', tw / 2);
       }
     });
-    blk.specs.push({ type: 'podium', x0: r.cx - 22, x1: r.cx + 22, z0: r.cz - 14, z1: r.cz + 14, y0: Y0, floors: 3, fh: 4, groundH: 5, color: [0.88, 0.88, 0.87], seed: blk.seed * 100 + 9, front: 'S', streets: ['S', 'N'], upper: 'curtain', spandrel: sp, signBase: Math.floor(R() * 48), unitW: 8 });
+    blk.specs.push({ type: 'podium', x0: r.cx - 22, x1: r.cx + 22, z0: r.cz - 14, z1: r.cz + 14, y0: Y0, floors: 3, fh: 4, groundH: 5, color: [0.88, 0.88, 0.87], seed: blk.seed * 100 + 9, front: 'S', streets: ['S', 'N'], upper: 'curtain', spandrel: sp, signBase: Math.floor(R() * 48), unitW: 8, bkind: 'shop', officePodium: true, bname: this.placeName(R, 'shop') });
     const p = st.props;
     p.setColor(0xe8402a); const sc = new THREE.TorusKnotGeometry(1.6, 0.45, 64, 8); sc.translate(r.x0 + SIDEWALK + 12, Y0 + 4, r.cz); p.addGeo(sc);
     p.setColor(0x9a968e); p.cbox(r.x0 + SIDEWALK + 12, Y0 + 1, r.cz, 3, 2, 3);
@@ -408,7 +415,7 @@ export class City {
     const x0 = r.x0 + m, x1 = r.x1 - m, z0 = r.z0 + m, z1 = r.z1 - m;
     const lake = blk.i < 5 ? 'E' : blk.i > 6 ? 'W' : blk.j < 5 ? 'S' : 'N';
     const pf = 2, pfh = 4.4, gh = 5;
-    const pod = { type: 'podium', x0, x1, z0, z1, y0: Y0, floors: pf, fh: pfh, groundH: gh, color: [0.92, 0.9, 0.86], seed: blk.seed * 100, front: lake, streets: [lake, ...['N', 'S', 'E', 'W'].filter(k => k !== lake)], upper: 'curtain', spandrel: [0.62, 0.62, 0.6], signBase: Math.floor(R() * 48), unitW: 7.5 };
+    const pod = { type: 'podium', x0, x1, z0, z1, y0: Y0, floors: pf, fh: pfh, groundH: gh, color: [0.92, 0.9, 0.86], seed: blk.seed * 100, front: lake, streets: [lake, ...['N', 'S', 'E', 'W'].filter(k => k !== lake)], upper: 'curtain', spandrel: [0.62, 0.62, 0.6], signBase: Math.floor(R() * 48), unitW: 7.5, bkind: 'mall', mall: true, bname: `한빛 ${['레이크', '센트럴', '파크', '리버'][(blk.i + blk.j) % 4]}몰` };
     blk.specs.push(pod);
     const top = Y0 + gh + pf * pfh + 0.3;
     const color = APT_COLORS[Math.floor(R() * APT_COLORS.length)], accent = APT_ACCENT[Math.floor(R() * APT_ACCENT.length)];
@@ -418,13 +425,16 @@ export class City {
     pos.forEach(([tx, tz], k) => {
       const s = { type: 'tower', x0: tx, x1: tx + ts, z0: tz, z1: tz + ts, y0: top, floors: 40 + Math.floor(R() * 16), fh: 3.0, color, accent, seed: blk.seed * 100 + 1 + k, noCollide: true };
       blk.specs.push(s); towers.push(s);
-      this.doors.push({ x: tx + ts / 2, z: k < 2 ? z0 - 2 : z1 + 2, name: `한빛 ${['레이크', '센트럴', '파크', '리버'][(blk.i + blk.j + k) % 4]}타워 ${k + 1}동` });
+      const tnm = `한빛 ${['레이크', '센트럴', '파크', '리버'][(blk.i + blk.j + k) % 4]}타워 ${k + 1}동`;
+      this.doors.push({ x: tx + ts / 2, z: k < 2 ? z0 - 2 : z1 + 2, name: tnm });
+      Object.assign(s, { bkind: 'tower', bname: tnm, tfront: k < 2 ? 'N' : 'S', podium: pod, lobbyLen: k < 2 ? tz - z0 : z1 - (tz + ts) });
     });
+    pod.towers = towers;
     if (pent) {
       const lx = lake === 'E' ? 1 : lake === 'W' ? -1 : 0, lz = lake === 'S' ? 1 : lake === 'N' ? -1 : 0;
       let t = towers[0];
       for (const b of towers) if (b.x0 * lx + b.z0 * lz > t.x0 * lx + t.z0 * lz + 1) t = b;
-      t.site = 'pent'; t.floors = 52;
+      t.site = 'pent'; t.floors = 52; t.bkind = null;
       this.pentTower = t; this.pentLake = lake;
       const f = faces(pod)[lake];
       // 로비: 포디움 호수 쪽 면에서 그 탑과 마주 보는 위치
@@ -458,7 +468,9 @@ export class City {
       }
       const s = { type: 'villa', x0: vx, x1: vx + vw, z0: vz, z1: vz + vd, y0: Y0, floors: 3 + Math.floor(R() * 2), fh: 2.8, color: VILLA_COLORS[Math.floor(R() * VILLA_COLORS.length)], seed: blk.seed * 100 + n++, front: rr === 0 ? 'N' : 'S', hipRoof: R() < 0.3 };
       blk.specs.push(s);
-      this.doors.push({ x: vx + vw / 2, z: s.front === 'S' ? vz + vd + 1.6 : vz - 1.6, name: this.placeName(R, 'villa') });
+      const vnm = this.placeName(R, 'villa');
+      this.doors.push({ x: vx + vw / 2, z: s.front === 'S' ? vz + vd + 1.6 : vz - 1.6, name: vnm });
+      s.bkind = 'villa'; s.bname = vnm;
     }
     this.static.asph.top(r.x0 + SIDEWALK, r.z0 + SIDEWALK, r.x1 - SIDEWALK, r.z1 - SIDEWALK, Y0 + 0.01, 14, 14);
     for (let k = 0; k < 30; k++) {
@@ -472,7 +484,7 @@ export class City {
   planCivic(blk, R) {
     const r = blk.r;
     const hall = blk.i === 5;
-    const s = { type: 'civic', x0: r.cx - 45, x1: r.cx + 45, z0: r.cz - 16, z1: r.cz + 34, y0: Y0, floors: hall ? 7 : 4, fh: hall ? 4.2 : 5.5, seed: blk.seed * 100, front: 'N' };
+    const s = { type: 'civic', x0: r.cx - 45, x1: r.cx + 45, z0: r.cz - 16, z1: r.cz + 34, y0: Y0, floors: hall ? 7 : 4, fh: hall ? 4.2 : 5.5, seed: blk.seed * 100, front: 'N', bkind: 'civic', hall, bname: hall ? '한빛시청' : '한빛아트센터' };
     blk.specs.push(s);
     this.addSign({ sign: hall ? ['한빛시청', '#1d3b5e', '#ffffff', 'HANBIT CITY HALL'] : ['한빛아트센터', '#5a1d3b', '#ffffff', '문화예술회관'] }, s, 'N', 45, Y0 + 8, 1.8);
     this.doors.push({ x: r.cx, z: s.z0 - 3, name: hall ? '한빛시청' : '한빛아트센터' });
@@ -808,7 +820,7 @@ export class City {
         cs.push({ b, x0: qx ? mx : r.x0 - ROAD / 2, x1: qx ? r.x1 + ROAD / 2 : mx, z0: qz ? mz : r.z0 - ROAD / 2, z1: qz ? r.z1 + ROAD / 2 : mz, specs: [], extras: [], trees: [], lamps: [], parkLamps: [], near: null });
       }
       const pickC = (x, z) => cs[(x >= mx ? 1 : 0) + (z >= mz ? 2 : 0)];
-      for (const s of b.specs) { if (s.site) continue; pickC((s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2).specs.push(s); }
+      for (const s of b.specs) { s.blk = b; if (s.site) continue; const c = pickC((s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2); c.specs.push(s); s.chunk = c; }
       for (const e of b.extras) pickC(e.x, e.z).extras.push(e);
       for (const t of b.trees) pickC(t[0], t[1]).trees.push(t);
       for (const l of b.lamps) pickC(l.x, l.z).lamps.push(l);
@@ -833,21 +845,76 @@ export class City {
   buildFarAll() {
     // 먼 거리 상자: 4×4 구역으로 묶어서 항상 그림 (상세 모델 속에 숨음)
     const G = 4, cell = (HALF * 2) / G;
-    const regions = Array.from({ length: G * G }, () => ({ solid: new GB(), lit: new GB() }));
+    this.farRegions = Array.from({ length: G * G }, () => ({ specs: [], meshes: [] }));
     for (const b of this.blocks) for (const s of b.specs) {
       if (s.site) continue;
       const gi = Math.min(G - 1, Math.max(0, Math.floor(((s.x0 + s.x1) / 2 + HALF) / cell))), gj = Math.min(G - 1, Math.max(0, Math.floor(((s.z0 + s.z1) / 2 + HALF) / cell)));
-      buildBox(regions[gi + gj * G], s);
+      s.farR = gi + gj * G; this.farRegions[s.farR].specs.push(s);
     }
-    for (const F of regions) {
-      if (F.solid.empty) continue;
-      this.group.add(new THREE.Mesh(F.solid.build(), this.B.solid));
-      if (!F.lit.empty) { const lm = new THREE.Mesh(F.lit.build(), this.B.lit); lm.visible = false; this.group.add(lm); this.farLit.push(lm); }
+    this.farRegions.forEach((_, i) => this.buildFarRegion(i));
+  }
+  buildFarRegion(i) {
+    const R = this.farRegions[i];
+    for (const m of R.meshes) { this.group.remove(m); m.geometry.dispose(); const k = this.farLit.indexOf(m); if (k >= 0) this.farLit.splice(k, 1); }
+    R.meshes = [];
+    const F = { solid: new GB(), lit: new GB() };
+    for (const s of R.specs) if (!s.hidden) buildBox(F, s);
+    if (F.solid.empty) return;
+    const m = new THREE.Mesh(F.solid.build(), this.B.solid); this.group.add(m); R.meshes.push(m);
+    if (!F.lit.empty) { const lm = new THREE.Mesh(F.lit.build(), this.B.lit); lm.visible = this.night > 0.2; this.group.add(lm); this.farLit.push(lm); R.meshes.push(lm); }
+  }
+  // 건물 안에 들어가면 그 건물 겉모습을 숨겨요 (창밖으로 도시가 보이게)
+  setHidden(specs) {
+    const want = new Set(specs || []);
+    const prev = this.hiddenSpecs || new Set();
+    const changed = [...want].filter(s => !prev.has(s)).concat([...prev].filter(s => !want.has(s)));
+    if (!changed.length) return;
+    for (const s of prev) s.hidden = false;
+    for (const s of want) s.hidden = true;
+    this.hiddenSpecs = want;
+    const chunks = new Set(), blocks = new Set(), regions = new Set();
+    for (const s of changed) { if (s.chunk) chunks.add(s.chunk); if (s.blk) blocks.add(s.blk); if (s.farR !== undefined) regions.add(s.farR); }
+    for (const c of chunks) if (c.near) { this.disposeGroup(c.near); c.near = null; this.buildNearChunk(c); }
+    for (const b of blocks) if (b.mid) { const v = b.mid.visible; this.disposeGroup(b.mid); b.mid = null; this.buildMidBlock(b); b.mid.visible = v; }
+    for (const i of regions) this.buildFarRegion(i);
+  }
+  // 들어갈 수 있는 건물들 + 문 위치
+  buildBldgs() {
+    this.bdoors = []; this.bdGrid = new Map(); this.bldgs = [];
+    for (const b of this.blocks) for (const s of b.specs) {
+      if (!s.bkind || s.site || s.special) continue;
+      this.bldgs.push(s);
+      let B;
+      try { B = this.bldgOf(s); } catch (e) { console.warn('bldg', e); continue; }
+      if (s.bkind === 'tower') continue; // 타워 로비 문은 아래에서
+      for (const e of entrancesOf(B)) this.addBDoor(s, e);
     }
+    // 주상복합 타워: 포디움 가장자리 로비 문
+    for (const s of this.bldgs) if (s.bkind === 'tower') { const B = this.bldgOf(s); for (const e of entrancesOf(B)) this.addBDoor(s, e); }
+  }
+  addBDoor(s, e) {
+    const t = e.unit?.tenant;
+    const d = { x: e.x, z: e.z, nx: e.nx, nz: e.nz, spec: s, n: e.n, door: e.door, unitK: e.unit?.k ?? null, villa: e.villa };
+    if (t && !t.vacant) { d.name = t.name; d.icon = TYPES[t.type]?.icon || '🏪'; d.tenant = t; }
+    else if (t?.vacant) { d.name = '빈 가게 (임대 문의)'; d.icon = '🏷️'; d.vacant = true; }
+    else { d.name = s.bname || '건물'; d.icon = s.bkind === 'apt' || s.bkind === 'tower' || s.bkind === 'villa' ? '🏢' : s.bkind === 'office' ? '🏢' : s.bkind === 'civic' ? '🏛️' : '🚪'; d.lobby = true; }
+    this.bdoors.push(d);
+    const k = Math.floor(d.x / 20) + ',' + Math.floor(d.z / 20);
+    let a = this.bdGrid.get(k); if (!a) this.bdGrid.set(k, a = []); a.push(d);
+  }
+  bldgOf(s) {
+    if (!s.B) s.B = describe(s, { kind: s.bkind, name: s.bname, front: s.tfront, podium: s.podium, towers: s.towers, hall: s.hall, lobbyLen: s.lobbyLen });
+    return s.B;
+  }
+  nearestBDoor(x, z, r = 2.4) {
+    let best = null, bd = r;
+    const gx = Math.floor(x / 20), gz = Math.floor(z / 20);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const d of this.bdGrid?.get((gx + i) + ',' + (gz + j)) || []) { const dd = Math.hypot(d.x - x, d.z - z); if (dd < bd) { bd = dd; best = d; } }
+    return best;
   }
   buildMidBlock(b) {
     const F = { solid: new GB(), lit: new GB() };
-    for (const s of b.specs) if (!s.site) buildMid(F, s);
+    for (const s of b.specs) if (!s.site && !s.hidden) buildMid(F, s);
     const g = new THREE.Group();
     if (!F.solid.empty) g.add(new THREE.Mesh(F.solid.build(), this.B.solid));
     if (!F.lit.empty) { const lm = new THREE.Mesh(F.lit.build(), this.B.lit); lm.userData.night = true; g.add(lm); }
@@ -887,7 +954,7 @@ export class City {
   }
   buildNearChunk(c) {
     const B = new Bld();
-    for (const s of c.specs) buildNear(B, s);
+    for (const s of c.specs) if (!s.hidden) buildNear(B, s);
     for (const e of c.extras) e.fn(B);
     for (const l of c.lamps) {
       const ry = l.axis === 'z' ? (l.rot > 0 ? Math.PI / 2 : -Math.PI / 2) : (l.rot > 0 ? 0 : Math.PI);
