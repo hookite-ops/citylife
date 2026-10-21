@@ -50,7 +50,7 @@ export function blockRect(i, j) {
 export const WORLD_LIMIT = HALF + 40;
 
 // 게임 시간: 실제 1초 = 게임 1분
-export const MIN_PER_SEC = 1;
+export const MIN_PER_SEC = 0.5;  // 게임 하루 = 실제 48분
 
 export const WAGE_MART = 10320;
 export const OFFICE_RANKS = [

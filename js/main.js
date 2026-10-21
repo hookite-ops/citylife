@@ -22,6 +22,8 @@ import { Missions } from './missions.js';
 import { Weather } from './weather.js';
 import { OUTFITS, OUTFIT_CATS, SKIN_TONES, ensureLook, wear, swatch } from './outfits.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
+import { runMeal, pickMealSheet } from './meal.js';
+import { ensureWallet, paySheet, atmSheet, openStatus, closedNotice, hoursText, ClosingWatch, HOURS } from './commerce.js';
 
 // ───────── 품질 ─────────
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -132,6 +134,7 @@ async function boot() {
     city.colliders.push({ x0: p.x - hw, x1: p.x + hw, z0: p.z - hd, z1: p.z + hd, h: 1.4, soft: true });
   });
   interior = new Interior(renderer);
+  ensureWallet(S);
   human = createHuman(ensureLook(S));
   scene.add(human.root);
   // 알바 조끼
@@ -141,12 +144,12 @@ async function boot() {
   human.applyUniform = (on) => { vest.visible = on; };
   mart = new MartRoom();
   martGame = new MartGame({
-    get S() { return S; }, room: mart, player, human, audio, earn, pay, persist, foodInfo,
+    get S() { return S; }, room: mart, player, human, audio, earn, pay, checkout, payCash, persist, foodInfo, atm: () => atmSheet(walletCtx(), { name: '편의점 ATM', fee: 1300 }), eatMeal: (ids, o) => eatMeal(ids, o),
     eatFood: (id, o) => eatFood(id, o), setBusy: (v) => { busy = v; }, exit: () => exitMart(), onBuy: () => missions.event('buy_mart'),
   });
   cooking = new Cooking({
     get S() { return S; }, interior, human, player, audio, persist, foodInfo,
-    setBusy: (v) => { busy = v; }, eatAtHome: (k) => eatAtHome(k), focusKitchen: (v) => { cam.kitchen = v; },
+    setBusy: (v) => { busy = v; }, eatAtHome: (k) => { const ids = readyFood(); if (ids.length > 1) pickMealSheet({ ids, foodInfo, preselect: [k], sub: '반찬이나 음료도 같이 올려요 · 조합이 좋으면 기분 UP' }, eatAtHome); else eatAtHome([k]); }, focusKitchen: (v) => { cam.kitchen = v; },
   });
   school = new SchoolRoom();
   schoolGame = new SchoolGame({
@@ -158,7 +161,7 @@ async function boot() {
   missions = new Missions({ get S() { return S; }, city, audio, flashMoney, persist });
   missions.init();
   stat = new StatRoom();
-  statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, persist, setBusy: (v) => { busy = v; }, onBuy: () => missions.event('buy_stat'), onGacha: () => missions.event('gacha') });
+  statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, checkout, payCash, persist, setBusy: (v) => { busy = v; }, onBuy: () => missions.event('buy_stat'), onGacha: () => missions.event('gacha') });
   statSite = city.sites.find(s => s.kind === 'stat');
   if (statSite) statSite.anchor.add(stat.root);
   controls = new Controls(canvas, $('joy'), $('knob'));
@@ -234,6 +237,7 @@ async function startGame(fresh) {
   mode = 'city';
   missions.init();
   human.restyle(ensureLook(S));
+  ensureWallet(S);
   const home = homeEntrance();
   const sp = S.player;
   const valid = sp && Number.isFinite(sp.x) && Number.isFinite(sp.z) && Math.abs(sp.x) < HALF + 30 && Math.abs(sp.z) < HALF + 30;
@@ -432,6 +436,10 @@ function frame(now) {
       if (!paused) updateMartInteract();
       audio.ambient(false, true);
     } else if (mode === 'stat') {
+      if (closing.key !== 'stat') closing.reset('stat');
+      const cw = closing.tick(hours % 24, weekday());
+      if (cw === 'warn') toast('🔔 사장님: "30분 뒤에 문 닫아요~ 필요한 거 있으면 얼른 골라요"', '', 4500);
+      if (cw === 'closed' && !busy) { closeSheet(); statGame.basket = {}; toast('🔒 영업이 끝났어요. 고른 물건은 제자리에 두고 나왔어요', 'bad', 4000); leaveSite(); persist(); return; }
       if (!paused) updateRoomWalking(dt);
       stat.update(sheetOpen() || phoneOpen ? 0 : dt, player.pos, hours % 24);
       updateRoomCamera(dt);
@@ -793,7 +801,12 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR' && !inCar) { player.run = !player.run; $('btnRun').classList.toggle('on', player.run); }
 });
 
+const weekday = () => (ST.day(S) - 1) % 7;
 function openPlace(e) {
+  if (HOURS[e.id] && !e.walkIn) {
+    const st = openStatus(e.id, ST.hour(S) % 24, weekday());
+    if (!st.open) return closedNotice(e.id, st);
+  }
   switch (e.id) {
     case 'home': return e.walkIn ? walkInto(e.site) : enterHome();
     case 'mart': return walkInto(e.site);
@@ -814,6 +827,15 @@ function pay(amount, reason) {
   if (S.money < amount) { audio.bad(); toast(`돈이 부족해요 (${won(amount)} 필요)`, 'bad'); return false; }
   S.money -= amount; flashMoney(false);
   return true;
+}
+// 가게 계산: 카드·간편결제·현금 고르기
+function walletCtx() { return { get S() { return S; }, audio, flash: (g) => flashMoney(g), persist }; }
+function checkout(total, opts, onPaid) { paySheet(walletCtx(), total, { ...opts, onPaid }); }
+// 동전·현금만 (뽑기 기계, 현금 전용 가게)
+function payCash(amount) {
+  ensureWallet(S);
+  if (S.cash < amount) { audio.bad(); toast(`🪙 현금이 없어요 (지갑 ${won(S.cash)}) · 편의점 ATM에서 뽑아 오세요`, 'bad', 3600); return false; }
+  S.cash -= amount; flashMoney(false); return true;
 }
 function earn(amount, reason) {
   amount = Math.round(amount / 10) * 10;
@@ -845,6 +867,7 @@ function eat(f, minutes = 10) {
   updateHUD(true);
 }
 let warned = {};
+const closing = new ClosingWatch();
 function needWarnings(beforeEnergy) {
   const chk = (k, v, lim, msg) => { if (v < lim && !warned[k + lim]) { warned[k + lim] = true; toast(msg, 'bad', 4000); } if (v > lim + 10) warned[k + lim] = false; };
   chk('h', S.hunger, 20, '🍚 배가 고파요. 편의점이나 식당에 가 보세요');
@@ -860,6 +883,7 @@ function updateHUD(force) {
   $('clk').textContent = c.text;
   $('day').textContent = `${ST.day(S)}일차 · ${DAYNAMES[(ST.day(S) - 1) % 7]}`;
   $('money').textContent = Math.round(S.money).toLocaleString('ko-KR');
+  $('cash').textContent = Math.round(S.cash || 0).toLocaleString('ko-KR');
   for (const [id, v] of [['nHunger', S.hunger], ['nEnergy', S.energy], ['nMood', S.mood]]) {
     const el = $(id);
     el.querySelector('b').style.width = v + '%';
@@ -1025,12 +1049,21 @@ function eatFood(id, { minutes = 10, moodBonus = 0 } = {}) {
   persist();
 }
 
+// 한 입씩 먹기 (상에 올린 음식들)
+async function eatMeal(ids, { place = '식사', minutes = 12, moodBonus = 0 } = {}) {
+  const r = await runMeal({ S, foodInfo, audio, passTime: (m) => ST.passTime(S, m, 'idle'), hud: () => updateHUD(true) }, ids, { place, minutes, moodBonus });
+  if (r.bites) { missions.event('eat'); S.ateOnce = true; checkGoals(); }
+  updateHUD(true); persist();
+  return r;
+}
+const readyFood = () => Object.keys(S.inventory.food).filter(id => S.inventory.food[id] > 0 && !foodInfo(id).needWater);
+
 // ───────── 장소: 식당 ─────────
 function restSheet() {
   openSheet({
     icon: '🍚', title: '한끼식당', sub: '집밥보다 맛있는 한식 · 30분 소요',
     html: foodRows('rest'),
-    bind: (b) => bindActs(b, { eat: (id) => { const f = FOODS.find(x => x.id === id); if (pay(f.price)) { closeSheet(); mealScene(f); } } }),
+    bind: (b) => bindActs(b, { eat: (id) => { const f = FOODS.find(x => x.id === id); checkout(f.price, { icon: '🍚', title: '한끼식당 · 선불 계산', sub: `${f.name} 주문할게요`, lines: row({ icon: f.icon || '🍚', title: f.name, price: won(f.price) }) }, () => mealScene(f)); } }),
   });
 }
 async function mealScene(f) {
@@ -1200,11 +1233,12 @@ function furnSheet() {
       buy: (id, btn) => {
         const f = FURNITURE.find(x => x.id === id);
         const price = f.price || (id === 'bed' ? 190000 : 390000);
-        if (!pay(price)) return;
-        S.inventory.furniture[id] = (S.inventory.furniture[id] || 0) + 1;
-        toast(`📦 ${f.name} 배송 완료! 집에서 꾸미기로 놓아 주세요`, 'good');
-        btn.closest('.row').querySelector('.info span').textContent = (INTERACT[f.id] ? `집에서: ${INTERACT[f.id]}` : '분위기 UP') + ` · 보유 ${countFurn(f.id)}개`;
-        persist();
+        checkout(price, { icon: '🛋️', title: '홈데코 계산', sub: f.name, onCancel: () => setTimeout(furnSheet, 0) }, () => {
+          S.inventory.furniture[id] = (S.inventory.furniture[id] || 0) + 1;
+          toast(`📦 ${f.name} 배송 완료! 집에서 꾸미기로 놓아 주세요`, 'good');
+          persist();
+          setTimeout(furnSheet, 0);
+        });
       },
     }),
   });
@@ -1246,8 +1280,8 @@ function gymSheet() {
     html: row({ icon: '🏋️', title: '1시간 운동', desc: '기분 +16 · 체력 +1 · 에너지 많이 소모', price: won(12000), btn: '운동', action: 'gym' }) +
       row({ icon: '🚿', title: '샤워', desc: '개운해요 · 기분 +10 · 15분', price: won(3000), btn: '샤워', action: 'shower' }),
     bind: (b) => bindActs(b, {
-      gym: async () => { if (S.energy < 20) return toast('너무 피곤해요', 'bad'); if (!pay(12000)) return; closeSheet(); busy = true; await fade(true); ST.passTime(S, 60, 'gym'); S.fitness++; await fade(false); busy = false; toast(`💪 운동 완료! 체력 레벨 ${S.fitness}`, 'good'); persist(); },
-      shower: async () => { if (!pay(3000)) return; closeSheet(); busy = true; await fade(true); ST.passTime(S, 15, 'idle'); S.mood = ST.clamp(S.mood + 10); await fade(false); busy = false; toast('🚿 상쾌해요!', 'good'); },
+      gym: () => { if (S.energy < 20) return toast('너무 피곤해요', 'bad'); checkout(12000, { icon: '💪', title: '일일 이용권' }, async () => { busy = true; await fade(true); ST.passTime(S, 60, 'gym'); S.fitness++; await fade(false); busy = false; toast(`💪 운동 완료! 체력 레벨 ${S.fitness}`, 'good'); persist(); }); },
+      shower: () => checkout(3000, { icon: '🚿', title: '샤워실 이용' }, async () => { busy = true; await fade(true); ST.passTime(S, 15, 'idle'); S.mood = ST.clamp(S.mood + 10); await fade(false); busy = false; toast('🚿 상쾌해요!', 'good'); }),
     }),
   });
 }
@@ -1298,7 +1332,7 @@ function checkWalkIn() {
       if (s === statSite && !statGame.isOpen()) {
         // 영업시간이 아니면 문이 잠겨 있음
         const [wx, wz] = s.toWorld(lx, s.D / 2 + 0.5); player.pos.x = wx; player.pos.z = wz;
-        if (elapsed > (lockedToast || 0)) { lockedToast = elapsed + 3; toast('🔒 문구랜드는 오전 8시 ~ 밤 9시에 열어요', 'bad'); }
+        if (elapsed > (lockedToast || 0)) { lockedToast = elapsed + 4; toast(`🔒 문 앞 안내문: "영업시간 ${hoursText('stat')}"`, 'bad', 3600); }
         return;
       }
       const r = roomOf(s); if (r) enterSite(s, r[0], r[1], lx, lz);
@@ -1415,7 +1449,7 @@ function walkInto(s) {
   if (s.kind === 'mart' && s !== martSite) { mart.clearNpcs(); s.anchor.add(mart.root); martSite = s; }
   if (s.kind === 'school' && s !== schoolSite) { school.build(s.school); s.anchor.add(school.root); schoolSite = s; }
   const r = roomOf(s); if (!r) return;
-  if (s.kind === 'stat' && !statGame.isOpen()) { toast('🔒 문구랜드는 오전 8시 ~ 밤 9시에 열어요', 'bad'); return; }
+  if (s.kind === 'stat' && !statGame.isOpen()) { closedNotice('stat', openStatus('stat', ST.hour(S) % 24, weekday())); return; }
   const dx = s.kind === 'mart' ? 4.2 : s.kind === 'school' ? 0 : s.kind === 'stat' ? STAT_DOOR.x : interior.door.x;
   player.heading = Math.PI + s.rot; cam.yaw = s.rot;
   enterSite(s, r[0], r[1], dx, s.D / 2 - 0.8);
@@ -1726,17 +1760,17 @@ function fridgeSheet(fromPhone) {
         return row({ icon: f.icon, title: `${f.name} ×${n}`, desc: `배고픔 +${f.hunger || 0}${f.energy ? ` · 에너지 ${f.energy > 0 ? '+' : ''}${f.energy}` : ''}${f.homemade ? ' · 직접 만든 요리' : ''}`, btn: '먹기', action: 'eat:' + id });
       }).join('') : '<p class="note">비어 있어요. 편의점에서 사 오거나 주방에서 요리해 보세요.</p>'}</div>
       <div data-pane="ing" class="hidden">${ings.length ? ings.map(([k, n]) => row({ icon: INGREDIENTS[k].icon, title: `${INGREDIENTS[k].name} ×${n}`, desc: '주방에서 요리할 때 써요' })).join('') : '<p class="note">재료가 없어요. 편의점 식재료·라면 코너에서 사 오세요.</p>'}</div>`,
-    bind: (b) => { tabs(b); bindActs(b, { eat: (id) => { closeSheet(); if (mode === 'home' && !fromPhone) eatAtHome(id); else eatFood(id); } }); },
+    bind: (b) => { tabs(b); bindActs(b, { eat: (id) => { closeSheet(); const go = (ids) => (mode === 'home' && !fromPhone) ? eatAtHome(ids) : eatMeal(ids, { place: fromPhone ? '가방에서 꺼내 먹기' : '식사' }); const ids = readyFood(); if (ids.length > 1) pickMealSheet({ ids, foodInfo, preselect: [id] }, go); else go([id]); } }); },
   });
 }
-async function eatAtHome(id) {
+async function eatAtHome(ids) {
+  if (!Array.isArray(ids)) ids = [ids];
   busy = true;
   const table = interior.items.find(m => ['table', 'desk'].includes(m.userData.item.id));
   await fade(true);
   if (table) { human.root.position.set(table.position.x, 0.02, table.position.z + 0.75); human.root.rotation.y = Math.PI + table.rotation.y; human.setPose('sit'); }
   await fade(false);
-  await wait(TEST ? 200 : 1400);
-  eatFood(id, { minutes: 15, moodBonus: table ? 3 : 0 });
+  await eatMeal(ids, { place: table ? '우리 집 식탁' : '우리 집', minutes: 15, moodBonus: table ? 3 : 0 });
   await fade(true);
   human.setPose('stand');
   human.root.position.copy(player.pos); human.root.rotation.y = player.heading;
@@ -1911,7 +1945,7 @@ function phoneApp(id) {
     return;
   }
   if (id === 'bank') {
-    phScreen.innerHTML = `<div class="ph-title">💳 한빛은행</div><div class="ph-widget"><div style="font-size:13px;opacity:.8">보통예금 잔액</div><div class="big">${won(S.money)}</div></div>
+    phScreen.innerHTML = `<div class="ph-title">💳 한빛은행</div><div class="ph-widget"><div style="font-size:13px;opacity:.8">보통예금 잔액 (카드·간편결제)</div><div class="big">${won(S.money)}</div><div style="font-size:13px;opacity:.8">💵 지갑 현금 ${won(S.cash || 0)} · 현금은 편의점 ATM에서 뽑아요</div></div>
       <div class="grid2"><div class="stat"><span>지금까지 번 돈</span><b>${won(S.totalEarned)}</b></div><div class="stat"><span>완료한 배달</span><b>${S.deliveries}건</b></div><div class="stat"><span>편의점 알바</span><b>${S.martShifts}회</b></div><div class="stat"><span>보유 차량</span><b>${S.cars.length}대</b></div></div>`;
     return;
   }
@@ -2016,7 +2050,7 @@ async function taxi(e) {
   const p = playerWorld();
   const d = Math.hypot(e.x - p.x, e.z - p.z);
   const fare = Math.round((4800 + d * 14) / 100) * 100;
-  if (!pay(fare)) return;
+  if (S.money < fare && (S.cash || 0) < fare) { audio.bad(); toast(`🚕 요금이 모자라요 (약 ${won(fare)})`, 'bad'); return; }
   closePhone();
   busy = true;
   await fade(true);
@@ -2035,7 +2069,14 @@ async function taxi(e) {
   await wait(500);
   await fade(false);
   busy = false;
-  toast(`🚕 ${e.name} 도착 · 요금 ${won(fare)}`);
+  // 도착하면 요금 계산 (그냥 닫으면 카드로 자동 결제)
+  let paid = false;
+  checkout(fare, { icon: '🚕', title: `택시 요금 · ${e.name}`, sub: '기사님: "도착했습니다~ 결제 도와드릴게요"', onCancel: () => {
+    if (paid) return;
+    if (S.money >= fare) { S.money -= fare; toast(`💳 등록된 카드로 ${won(fare)} 결제됐어요`); }
+    else { const c = Math.min(S.cash || 0, fare); S.cash -= c; S.money -= fare - c; toast(`💵 가진 돈으로 ${won(fare)} 냈어요`); }
+    flashMoney(false); persist();
+  } }, () => { paid = true; });
   if (S.waypoint && S.waypoint.name === e.name) S.waypoint = null;
 }
 function callCar() {

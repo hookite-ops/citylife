@@ -73,32 +73,32 @@ export class StatGame {
         wrap: () => { wrap = !wrap; open(); },
         pay: () => {
           const total = this.basketTotal() + (wrap ? 1000 : 0);
-          if (!this.c.pay(total)) return;
-          const S = this.S, inv = this.inv();
-          let mood = wrap ? 3 : 0;
-          const got = [];
-          for (const [id, n] of items) {
-            const p = P[id];
-            if (p.hunger) S.inventory.food[id] = (S.inventory.food[id] || 0) + n;
-            else inv[id] = (inv[id] || 0) + n;
-            if (p.pages) S.notePages += p.pages * n;
-            if (p.sketch) S.sketchPages += p.sketch * n;
-            if (p.toy) mood += p.toy * n;
-            got.push(p.icon);
-          }
-          if (mood) S.mood = ST.clamp(S.mood + mood);
-          this.basket = {};
-          closeSheet();
-          this.c.onBuy?.();
-          this.c.audio.play('pay');
-          toast(`🧾 결제 완료 ${won(total)} ${got.slice(0, 6).join('')}${mood ? ` · 기분 +${mood}` : ''}`, 'good', 3200);
-          if (this.hasPen() && S.notePages > 0 && !S.statTip) { S.statTip = true; setTimeout(() => toast('📓 공책 + 필기구가 있으면 학교 수업·시험에서 문제 풀 시간이 늘어나요'), 1500); }
-          if (this.hasColor() && S.sketchPages > 0 && !S.drawTip) { S.drawTip = true; setTimeout(() => toast('🎨 집 책상에서 그림을 그릴 수 있어요'), 3200); }
-          this.c.persist();
+          this.c.checkout(total, { icon: '🧾', title: '결제 방법', sub: '사장님: "카드도 되고 현금도 돼요~"' }, () => this.paid(items, total, wrap));
         },
       }),
     });
     open();
+  }
+  paid(items, total, wrap) {
+    const S = this.S, inv = this.inv();
+    let mood = wrap ? 3 : 0;
+    const got = [];
+    for (const [id, n] of items) {
+      const p = P[id];
+      if (p.hunger) S.inventory.food[id] = (S.inventory.food[id] || 0) + n;
+      else inv[id] = (inv[id] || 0) + n;
+      if (p.pages) S.notePages += p.pages * n;
+      if (p.sketch) S.sketchPages += p.sketch * n;
+      if (p.toy) mood += p.toy * n;
+      got.push(p.icon);
+    }
+    if (mood) S.mood = ST.clamp(S.mood + mood);
+    this.basket = {};
+    this.c.onBuy?.();
+    toast(`🧾 결제 완료 ${won(total)} ${got.slice(0, 6).join('')}${mood ? ` · 기분 +${mood}` : ''}`, 'good', 3200);
+    if (this.hasPen() && S.notePages > 0 && !S.statTip) { S.statTip = true; setTimeout(() => toast('📓 공책 + 필기구가 있으면 학교 수업·시험에서 문제 풀 시간이 늘어나요'), 1500); }
+    if (this.hasColor() && S.sketchPages > 0 && !S.drawTip) { S.drawTip = true; setTimeout(() => toast('🎨 집 책상에서 그림을 그릴 수 있어요'), 3200); }
+    this.c.persist();
   }
   talk() {
     const S = this.S, h = ST.hour(S) % 24;
@@ -129,7 +129,7 @@ export class StatGame {
     const grid = (k) => GACHA[k].items.map(it => `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:10px;background:${col[it.id] ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.25)'};border:1px solid ${RARE[it.r].col}55"><span style="font-size:26px;${col[it.id] ? '' : 'filter:brightness(0);opacity:.35'}">${it.icon}</span><small style="font-size:10px;color:${RARE[it.r].col}">${col[it.id] ? '×' + col[it.id] : RARE[it.r].name}</small></div>`).join('');
     const have = (k) => GACHA[k].items.filter(it => col[it.id]).length;
     openSheet({
-      icon: '🎰', title: '뽑기 기계', sub: '동전 넣고 손잡이를 돌려요',
+      icon: '🎰', title: '뽑기 기계', sub: `🪙 현금(동전)만 돼요 · 지갑 ${won(this.S.cash || 0)}`,
       html: ['toy', 'sticker'].map(k => `
         <div class="row"><div class="ic">${k === 'toy' ? '🧸' : '🌟'}</div><div class="info"><b>${GACHA[k].name}</b><span>모은 것 ${have(k)}/${GACHA[k].items.length} · 레어 25% · 전설 5%</span></div><div class="price">${won(GACHA[k].price)}</div><button class="btn green" data-act="pull:${k}">뽑기</button></div>
         <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin:4px 0 12px">${grid(k)}</div>`).join(''),
@@ -138,7 +138,7 @@ export class StatGame {
   }
   pull(k) {
     const g = GACHA[k];
-    if (!this.c.pay(g.price)) return;
+    if (!this.c.payCash(g.price)) return;
     closeSheet();
     const roll = Math.random() * 100;
     const r = roll < RARE.L.w ? 'L' : roll < RARE.L.w + RARE.R.w ? 'R' : 'C';

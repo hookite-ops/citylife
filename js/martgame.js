@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { PRODUCTS, P, CATS, SHIFTS } from './products.js';
 import { WAGE_MART, won } from './config.js';
 import * as ST from './state.js';
-import { $, toast, openSheet, closeSheet, bigMsg, fade, wait, row, bindActs } from './ui.js';
+import { $, toast, openSheet, closeSheet, sheetOpen, bigMsg, fade, wait, row, bindActs } from './ui.js';
+import { QUEUE, emojiSprite } from './mart.js';
+import { pickMealSheet } from './meal.js';
 
 // 편의점: 쇼핑 · 계산 · 알바 근무
 export class MartGame {
@@ -26,6 +28,7 @@ export class MartGame {
   onEnter() {
     const r = this.room;
     r.clearNpcs();
+    this.pq = null; if (this.qMark) this.qMark.visible = false;
     r.refreshStock();
     r.staff.root.visible = !this.onShift;
     this.spawnT = 2;
@@ -57,10 +60,50 @@ export class MartGame {
   }
 
   // ───────── 상호작용 버튼 ─────────
+  // ───────── 손님으로 줄서기 ─────────
+  pqIndex() { return this.pq ? (this.room.queue || []).indexOf(this.pq) : -1; }
+  joinQueue() {
+    const r = this.room; r.queue = r.queue || [];
+    this.pq = { isPlayer: true, state: 'queue', items: [] };
+    r.queue.push(this.pq);
+    this.pqServe = 0; this.pqWait = 0;
+    if (!this.qMark) { this.qMark = emojiSprite('👣', 0.5); r.root.add(this.qMark); }
+    this.qMark.visible = true;
+    this.c.audio.play('pick');
+    toast(`🙋 줄 맨 뒤에 섰어요 · 👣 표시된 자리에서 기다려요`);
+  }
+  leaveQueue(msg) {
+    const q = this.room.queue || [];
+    const i = q.indexOf(this.pq); if (i >= 0) q.splice(i, 1);
+    this.pq = null;
+    if (this.qMark) this.qMark.visible = false;
+    if (msg) toast(msg, 'bad', 3200);
+  }
+  updateQueue(dt) {
+    if (!this.pq) return;
+    const i = this.pqIndex();
+    if (i < 0) { this.leaveQueue(); return; }
+    const spot = QUEUE[Math.min(i, QUEUE.length - 1)];
+    const pp = this.c.player.pos;
+    this.qMark.position.set(spot[0], 0.35 + Math.sin(performance.now() / 300) * 0.05, spot[1]);
+    const d = Math.hypot(pp.x - spot[0], pp.z - spot[1]);
+    if (d > 4.5) return this.leaveQueue('🚶 줄에서 벗어나서 순서를 놓쳤어요');
+    if (i !== 0 || sheetOpen()) return;
+    this.pqWait += dt;
+    if (this.pqWait > 30) return this.leaveQueue('😑 뒷사람: "안 하실 거면 비켜 주세요~" · 순서를 놓쳤어요');
+    if (d < 1.3) { this.pqServe += dt; if (this.pqServe > 0.8) { this.pqServe = -999; this.checkoutSheet(); } }
+  }
+
   action(zone) {
     const M = this.M;
+    if (this.pq && zone?.id !== 'exit') {
+      const i = this.pqIndex();
+      if (i === 0) return { label: '💳 내 차례예요! 👣 자리로 가면 계산해요', fn: () => toast('계산대 앞 👣 자리에 서 주세요'), green: true };
+      return { label: `⏳ 줄 서는 중 · 앞에 ${i}명`, fn: () => toast('👣 자리에서 기다리면 차례가 와요 · 멀리 가면 순서를 놓쳐요') };
+    }
     if (!zone) return null;
     switch (zone.id) {
+      case 'atm': return { label: '🏧 ATM · 현금 뽑기/넣기', fn: () => this.c.atm() };
       case 'exit': return { label: '🚪 밖으로 나가기', fn: () => this.c.exit() };
       case 'shelf':
         if (this.onShift && this.carry && this.carry !== 'delivery') {
@@ -71,7 +114,11 @@ export class MartGame {
         if (this.onShift) return { label: `${CATS[zone.cat].icon} ${zone.label} · 재고 ${Math.round(this.room.stock[zone.cat] * 100)}%`, fn: () => this.shopSheet(zone) };
         return { label: `🛒 ${zone.label} 둘러보기`, fn: () => this.shopSheet(zone) };
       case 'counter':
-        if (this.basketCount()) return { label: `💳 계산하기 · ${won(this.basketTotal())}`, fn: () => this.checkoutSheet(), green: true };
+        if (this.basketCount()) {
+          const n = this.onShift ? 0 : (this.room.queue || []).length;
+          if (n) return { label: `🙋 줄 서기 · 앞에 ${n}명 계산 중`, fn: () => this.joinQueue(), green: true };
+          return { label: `💳 계산하기 · ${won(this.basketTotal())}`, fn: () => this.checkoutSheet(), green: true };
+        }
         if (this.onShift) return null;
         if (!M.hired) return { label: '🧑‍💼 알바 문의하기', fn: () => this.interviewSheet() };
         return { label: '🗓 내 알바 일정', fn: () => this.scheduleSheet() };
@@ -140,32 +187,35 @@ export class MartGame {
       return items.map(([id, n]) => row({ icon: P[id].icon, title: `${P[id].name} ×${n}`, desc: won(P[id].price) + ' / 개', price: won(P[id].price * n) })).join('') +
         `<div class="row"><div class="ic">🛍️</div><div class="info"><b>봉투</b><span>종량제 봉투 100원</span></div><button class="btn ${bag ? 'green' : 'gray'}" data-act="bag">${bag ? '넣음' : '필요해요'}</button></div>
         <div class="row" style="background:rgba(70,209,255,0.1)"><div class="info"><b>합계</b></div><div class="price" style="font-size:18px">${won(total)}</div></div>
-        <button class="btn wide green" data-act="pay">💳 카드로 결제하기</button>`;
+        <button class="btn wide green" data-act="pay">결제하기 (카드 · 현금 · 간편결제)</button>`;
     };
+    const cancel = () => { if (this.pq) this.leaveQueue('🧺 계산을 안 하고 줄에서 나왔어요'); };
     const open = () => openSheet({
+      onClose: cancel,
       icon: '💳', title: '계산하기', sub: this.onShift ? '직원 할인은 없어요' : '알바생: "어서오세요~ 봉투 필요하세요?"',
       html: render(),
       bind: (b) => bindActs(b, {
         bag: () => { bag = !bag; open(); },
         pay: () => {
           const total = this.basketTotal() + (bag ? 100 : 0);
-          if (!this.c.pay(total)) return;
-          const S = this.S;
-          for (const [id, n] of items) {
-            const p = P[id];
-            if (p.ing) for (const [k, v] of Object.entries(p.ing)) S.inventory.ing[k] = (S.inventory.ing[k] || 0) + v * n;
-            else S.inventory.food[id] = (S.inventory.food[id] || 0) + n;
-          }
-          M.basket = {};
-          closeSheet();
-          this.c.onBuy?.();
-          this.c.audio.play('pay');
-          toast(`🧾 결제 완료 ${won(total)} · 산 물건은 가방에 들어갔어요`, 'good');
-          this.c.persist();
+          this.c.checkout(total, { icon: '🧾', title: '결제 방법', sub: '알바생: "카드세요, 현금이세요?"', onCancel: cancel }, () => this.paidBasket(items, total));
         },
       }),
     });
     open();
+  }
+  paidBasket(items, total) {
+    const M = this.M, S = this.S;
+    for (const [id, n] of items) {
+      const p = P[id];
+      if (p.ing) for (const [k, v] of Object.entries(p.ing)) S.inventory.ing[k] = (S.inventory.ing[k] || 0) + v * n;
+      else S.inventory.food[id] = (S.inventory.food[id] || 0) + n;
+    }
+    M.basket = {};
+    if (this.pq) this.leaveQueue();
+    this.c.onBuy?.();
+    toast(`🧾 결제 완료 ${won(total)} · 산 물건은 가방에 들어갔어요`, 'good');
+    this.c.persist();
   }
 
   // ───────── 온수기 · 전자레인지 · 취식 ─────────
@@ -195,7 +245,7 @@ export class MartGame {
     await this.progress(label, 2.2, () => { if (Math.random() < 0.08) r.puff(...pos); });
     ST.passTime(S, minutes, 'idle');
     if (kind === 'micro') this.c.audio.play('ding');
-    S.inventory.food[id]--;
+    S.inventory.food[id]--; if (S.inventory.food[id] <= 0) delete S.inventory.food[id];
     S.inventory.food[id + '#hot'] = (S.inventory.food[id + '#hot'] || 0) + 1;
     this.c.setBusy(false);
     toast(`✅ 다 됐어요! 취식대에 앉아서 먹어요`, 'good');
@@ -203,25 +253,19 @@ export class MartGame {
   }
   eatSheet() {
     const S = this.S, inv = S.inventory.food;
-    const ready = Object.keys(inv).filter(id => inv[id] > 0 && !P[id]?.needWater);
-    openSheet({
-      icon: '🍽', title: '창가 취식대', sub: '앉아서 먹으면 기분이 조금 더 좋아요',
-      html: ready.length ? ready.map(id => { const f = this.c.foodInfo(id); return row({ icon: f.icon, title: `${f.name} ×${inv[id]}`, desc: `배고픔 +${f.hunger}${f.energy ? ` · 에너지 +${f.energy}` : ''}`, btn: '먹기', action: 'eat:' + id }); }).join('')
-        : '<p class="note">바로 먹을 수 있는 음식이 없어요. 컵라면은 온수기에서 물부터 부어야 해요.</p>',
-      bind: (b) => bindActs(b, { eat: (id) => { closeSheet(); this.sitAndEat(id); } }),
-    });
+    const ready = Object.keys(inv).filter(id => inv[id] > 0 && !this.c.foodInfo(id).needWater);
+    if (!ready.length) return openSheet({ icon: '🍽', title: '창가 취식대', sub: '', html: '<p class="note">바로 먹을 수 있는 음식이 없어요. 컵라면은 온수기에서 물부터 부어야 해요.</p>' });
+    pickMealSheet({ ids: ready, foodInfo: this.c.foodInfo, title: '창가 취식대', sub: '같이 먹을 걸 올려요 · 앉아서 먹으면 기분 +3', preselect: ready.filter(id => id.endsWith('#hot')).slice(0, 1) }, (ids) => this.sitAndEat(ids));
   }
-  async sitAndEat(id) {
+  async sitAndEat(ids) {
     const { human, player } = this.c;
     const r = this.room;
     const stool = r.stools.reduce((a, s) => Math.hypot(s[0] - player.pos.x, s[1] - player.pos.z) < Math.hypot(a[0] - player.pos.x, a[1] - player.pos.z) ? s : a);
     this.c.setBusy(true);
-    const old = player.pos.clone();
     human.root.position.set(stool[0], 0.28, stool[1]); human.root.rotation.y = 0;
     human.setPose('sit');
-    if (id.endsWith('#hot') || id.startsWith('cupramen')) r.puff(stool[0], 1.15, stool[1] + 0.45);
-    await this.progress('냠냠 먹는 중', 2.4, () => {});
-    this.c.eatFood(id, { minutes: 12, moodBonus: 3 });
+    if (ids.some(id => id.endsWith('#hot'))) r.puff(stool[0], 1.15, stool[1] + 0.45);
+    await this.c.eatMeal(ids, { place: '편의점 창가 취식대', minutes: 12, moodBonus: 3 });
     human.setPose('stand');
     player.pos.set(stool[0], 0, stool[1] - 0.7);
     human.root.position.copy(player.pos);
@@ -455,6 +499,7 @@ export class MartGame {
   // 근무 중 매 프레임
   update(dt) {
     const M = this.M, S = this.S, r = this.room;
+    this.updateQueue(dt);
     // 손님 생성
     this.spawnT -= dt;
     if (this.spawnT <= 0) {

@@ -8,6 +8,7 @@ export function newState() {
     v: 1,
     name: '나',
     money: 80000,
+    cash: 20000,                   // 지갑 현금
     minutes: 7 * 60 + 30,          // 1일차 07:30부터
     hunger: 75, energy: 85, mood: 70,
     fitness: 0,

@@ -205,6 +205,11 @@ export class MartRoom {
     // ATM · 택배 기계
     fix.setColor(0x2a4a7a); fix.box(-7, 0, 4.4, -6.4, 1.7, 5.4);
     fix.setColor(0x9ac0e8); fix.box(-6.41, 1.0, 4.6, -6.39, 1.4, 5.2);
+    fix.setColor(0xf0a020); fix.box(-6.42, 1.5, 4.4, -6.38, 1.7, 5.4);                       // ATM 띠
+    fix.setColor(0x1a1c20); fix.box(-6.5, 0.85, 4.65, -6.38, 0.95, 5.15);                     // 키패드 받침
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) { fix.setColor(0xd8dce2); fix.box(-6.48 + r * 0.035, 0.955, 4.75 + c * 0.1, -6.455 + r * 0.035, 0.97, 4.82 + c * 0.1); }
+    fix.setColor(0x0a0a0a); fix.box(-6.39, 1.2, 5.25, -6.37, 1.23, 5.36);                     // 카드 투입구
+    fix.setColor(0x0a0a0a); fix.box(-6.39, 0.62, 4.75, -6.37, 0.66, 5.1);                     // 현금 출구
     this.colliders.push({ x0: -7, x1: -6.4, z0: 4.4, z1: 5.4 });
 
     // 아이스크림 냉동고 (윗면 유리 미닫이)
@@ -281,6 +286,7 @@ export class MartRoom {
     Z('hot', 4.8, 3.6, 5.7, 5.4);
     Z('eat', -1.6, 4.2, 2.6, 5.4);
     Z('exit', 3.1, 5.0, 5.3, 6.0);
+    Z('atm', -6.4, 4.2, -5.5, 5.6);
 
     // 경고 아이콘 (진열 부족)
     this.warn = {};
