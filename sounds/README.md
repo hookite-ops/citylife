@@ -37,3 +37,4 @@
 - snore.mp3 — 잠자기
 - light.mp3 — 전등 스위치
 - jump.mp3 — 점프
+- rain.mp3 — 빗소리 (반복 재생)

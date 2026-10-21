@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { N, blockRect, blockIndex } from './config.js';
+import { pedName, pedItem } from './missions.js';
 import { createPed, SKINS, HAIRS, SHIRTS, PANTS, SHOES } from './human.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -43,7 +44,7 @@ export class Peds {
     const s = 0.92 + Math.random() * 0.16;
     p.root.scale.setScalar(female ? s * 0.94 : s);
     this.group.add(p.root);
-    this.list.push({ p, rect: [x0, z0, x1, z1], per, s: Math.random() * per, dir, speed: 1.1 + Math.random() * 0.5, cur: 0, wait: 0, pos: new THREE.Vector3() });
+    this.list.push({ p, rect: [x0, z0, x1, z1], per, s: Math.random() * per, dir, speed: 1.1 + Math.random() * 0.5, cur: 0, wait: 0, pos: new THREE.Vector3(), name: pedName(), req: Math.random() < 0.35, reqItem: pedItem() });
   }
   pointAt(o, s) {
     const [x0, z0, x1, z1] = o.rect, w = x1 - x0, d = z1 - z0;
@@ -60,6 +61,7 @@ export class Peds {
     o.rect = [r.x0 + inset, r.z0 + inset, r.x1 - inset, r.z1 - inset];
     o.per = 2 * (o.rect[2] - o.rect[0]) + 2 * (o.rect[3] - o.rect[1]);
     o.s = Math.random() * o.per;
+    o.name = pedName(); o.req = Math.random() < 0.35; o.reqItem = pedItem(); o.greeted = false; o.reqDone = false; o.talk = 0;
   }
   reseed(p) { this.focus = p.clone(); for (const o of this.list) this.relocate(o); }
   update(dt, playerPos, camPos) {
@@ -78,7 +80,8 @@ export class Peds {
       const ahead = rx * fx + rz * fz, lat = Math.abs(rx * fz - rz * fx);
       let target = o.speed;
       if (ahead > 0 && ahead < 1.6 && lat < 0.8) target = 0;
-      if (o.wait > 0) { o.wait -= dt; target = 0; }
+      if (o.talk > 0) { o.talk -= dt; target = 0; }
+      else if (o.wait > 0) { o.wait -= dt; target = 0; }
       else if (Math.random() < dt * 0.01) o.wait = 2 + Math.random() * 5;
       o.cur += (target - o.cur) * Math.min(1, dt * 4);
       o.s += o.cur * dt * o.dir;
@@ -88,11 +91,17 @@ export class Peds {
       root.visible = dist < 110;
       if (!root.visible) continue;
       root.position.copy(o.pos);
-      const want = Math.atan2(fx, fz);
+      const want = o.talk > 0 ? Math.atan2(playerPos.x - o.pos.x, playerPos.z - o.pos.z) : Math.atan2(fx, fz);
       let dh = want - root.rotation.y; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
       root.rotation.y += dh * Math.min(1, dt * 8);
       o.p.animate(dt, o.cur);
     }
+  }
+  // 말 걸 수 있는 가장 가까운 사람
+  nearest(pos, r = 2.2) {
+    let best = null, bd = r;
+    for (const o of this.list) { if (!o.p.root.visible) continue; const d = Math.hypot(pos.x - o.pos.x, pos.z - o.pos.z); if (d < bd) { bd = d; best = o; } }
+    return best;
   }
   // 플레이어가 보행자를 밀지 않도록 원 충돌
   collide(pos) {

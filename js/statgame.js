@@ -89,6 +89,7 @@ export class StatGame {
           if (mood) S.mood = ST.clamp(S.mood + mood);
           this.basket = {};
           closeSheet();
+          this.c.onBuy?.();
           this.c.audio.play('pay');
           toast(`🧾 결제 완료 ${won(total)} ${got.slice(0, 6).join('')}${mood ? ` · 기분 +${mood}` : ''}`, 'good', 3200);
           if (this.hasPen() && S.notePages > 0 && !S.statTip) { S.statTip = true; setTimeout(() => toast('📓 공책 + 필기구가 있으면 학교 수업·시험에서 문제 풀 시간이 늘어나요'), 1500); }
@@ -164,6 +165,7 @@ export class StatGame {
       mg.querySelector('#gTurn')?.addEventListener('click', () => { turns++; this.c.audio.play('click'); if (turns >= 3) { this.c.audio.play('plop'); draw('cap'); } else draw('turn'); });
       mg.querySelector('#gOpen')?.addEventListener('click', () => {
         const S = this.S; S.collection[it.id] = (S.collection[it.id] || 0) + 1; S.mood = ST.clamp(S.mood + RARE[r].mood);
+        this.c.onGacha?.();
         this.c.audio.play(r === 'C' ? 'coin' : 'success');
         draw('open');
         if (r === 'L') bigMsg('✨ 전설 등급!', it.name + '을(를) 뽑았어요', 2600);

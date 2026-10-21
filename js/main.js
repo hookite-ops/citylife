@@ -18,6 +18,9 @@ import { SchoolRoom } from './school.js';
 import { SchoolGame } from './schoolgame.js';
 import { StatRoom, STAT_DOOR } from './stationery.js';
 import { StatGame } from './statgame.js';
+import { Missions } from './missions.js';
+import { Weather } from './weather.js';
+import { OUTFITS, OUTFIT_CATS, SKIN_TONES, ensureLook, wear, swatch } from './outfits.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 
 // ───────── 품질 ─────────
@@ -38,7 +41,21 @@ const TEST = new URLSearchParams(location.search).has('test');
 
 // ───────── 렌더러 ─────────
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance' });
+} catch (e) {
+  window.__bootFailed = true;
+  window.__bootFail?.('이 기기에서 3D 그래픽을 쓸 수 없어요', 'WebGL을 켤 수 없어요. 브라우저를 최신으로 업데이트하거나 크롬·삼성 인터넷으로 열어 주세요.');
+  throw e;
+}
+// 그래픽 드라이버가 멈췄을 때 (탭 전환, 메모리 부족 등)
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  try { if (mode !== 'title') persist(); } catch (_) {}
+  const t = $('title'); t.classList.remove('hidden');
+  window.__bootFail?.('그래픽이 잠시 멈췄어요', '진행 상황은 저장했어요. 다시 시도를 누르면 이어서 할 수 있어요.');
+});
 renderer.setPixelRatio(QUAL[quality].pr);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -57,6 +74,9 @@ let city, sky, traffic, peds, interior, human, controls, mart, martGame, cooking
 let room = null;          // 지금 들어가 있는 실내 (interior | mart | school)
 let school, schoolGame, schoolEntrance = null;
 let martEntrance = null;  // 들어온 편의점 입구
+let missions, weather, talkingPed = null;
+// 성능 자동 조절: 프레임이 느리면 렌더링 해상도를 낮춤
+let dynScale = 1, perfT = 0, perfFrames = 0, perfWarned = false;
 let site = null, homeSite = null, martSite = null, schoolSite = null, statSite = null, stat, statGame, statEntrance = null;   // 실내가 붙어 있는 건물
 const camLocal = new THREE.Vector3(), localCam = { position: camLocal }, pwTmp = new THREE.Vector3();
 const roomAmb = new THREE.AmbientLight(0xfff6ea, 0);
@@ -81,14 +101,21 @@ let beacon, beaconRing;
 
 // ───────── 초기화 ─────────
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+function progress(f, text) {
+  $('loadFill').style.width = Math.round(f * 100) + '%';
+  if (text) $('loadTxt').textContent = text + '…';
+}
 async function boot() {
   const lt = $('loadTxt');
-  lt.textContent = '하늘과 빛을 준비하는 중…'; await nextFrame();
+  progress(0.03, '하늘과 빛을 준비하는 중'); await nextFrame();
   sky = new Sky(scene, renderer);
   applyShadowQuality();
-  lt.textContent = '도로와 건물을 짓는 중…'; await nextFrame();
-  city = new City(scene, quality);
-  lt.textContent = '차와 사람들을 불러오는 중…'; await nextFrame();
+  city = new City(scene, quality, true);
+  for (let k = 0; k < city.steps.length; k++) {
+    progress(0.08 + 0.72 * k / city.steps.length, city.steps[k][0]); await nextFrame();
+    city.steps[k][1]();
+  }
+  progress(0.82, '차와 사람들을 불러오는 중'); await nextFrame();
   traffic = new Traffic(scene, city, QUAL[quality].traffic);
   city.setNearRadius(QUAL[quality].near);
   peds = new Peds(scene, QUAL[quality].peds, (i, j) => ZONES[j][i] === 'L');
@@ -105,7 +132,7 @@ async function boot() {
     city.colliders.push({ x0: p.x - hw, x1: p.x + hw, z0: p.z - hd, z1: p.z + hd, h: 1.4, soft: true });
   });
   interior = new Interior(renderer);
-  human = createHuman({ skin: 0xe9c6a2, hair: 0x1c1410, shirt: 0xf2f2f0, jacket: 0x2e3f57, pants: 0x2a2f38, shoes: 0xf4f4f4 });
+  human = createHuman(ensureLook(S));
   scene.add(human.root);
   // 알바 조끼
   const vest = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.37).translate(0, 1.0, 0), new THREE.MeshStandardMaterial({ color: 0x1f8a4c, roughness: 0.5 }));
@@ -115,7 +142,7 @@ async function boot() {
   mart = new MartRoom();
   martGame = new MartGame({
     get S() { return S; }, room: mart, player, human, audio, earn, pay, persist, foodInfo,
-    eatFood: (id, o) => eatFood(id, o), setBusy: (v) => { busy = v; }, exit: () => exitMart(),
+    eatFood: (id, o) => eatFood(id, o), setBusy: (v) => { busy = v; }, exit: () => exitMart(), onBuy: () => missions.event('buy_mart'),
   });
   cooking = new Cooking({
     get S() { return S; }, interior, human, player, audio, persist, foodInfo,
@@ -126,8 +153,12 @@ async function boot() {
     get S() { return S; }, room: school, player, human, audio, earn, pay, persist,
     setBusy: (v) => { busy = v; }, exit: () => exitSchool(), refreshPeriod: () => schoolGame.refresh(schoolEntrance.school, true),
   });
+  weather = new Weather(scene, sky, city);
+  weather.onChange = (rain) => { if (mode !== 'title') toast(rain ? '🌧️ 비가 내리기 시작했어요 · 길이 미끄러워요' : '🌤️ 비가 그쳤어요', '', 3200); };
+  missions = new Missions({ get S() { return S; }, city, audio, flashMoney, persist });
+  missions.init();
   stat = new StatRoom();
-  statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, persist, setBusy: (v) => { busy = v; } });
+  statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, persist, setBusy: (v) => { busy = v; }, onBuy: () => missions.event('buy_stat'), onGacha: () => missions.event('gacha') });
   statSite = city.sites.find(s => s.kind === 'stat');
   if (statSite) statSite.anchor.add(stat.root);
   controls = new Controls(canvas, $('joy'), $('knob'));
@@ -141,7 +172,13 @@ async function boot() {
   S.minutes = hasSave ? S.minutes : S.minutes;
   sky.update(ST.hour(S), player.pos, 0);
   sky.refreshEnv();
-  lt.textContent = '';
+  progress(0.92, '첫 화면을 그리는 중'); await nextFrame();
+  renderer.render(scene, camera);
+  await nextFrame();
+  progress(1, ''); lt.textContent = '';
+  $('loadBar').style.display = 'none';
+  $('tFoot').textContent = isTouch ? '왼쪽 화면을 밀어 이동 · 오른쪽 화면을 밀어 시점 · 두 손가락으로 확대' : 'WASD 이동 · 마우스 드래그 시점 · 휠 확대 · E 상호작용 · Space 점프 · Esc 메뉴';
+  window.__booted = true;
   $('tBtns').classList.remove('hidden');
   if (hasSave) { $('bContinue').classList.remove('hidden'); $('bNew').classList.add('secondary'); $('bNew').textContent = '처음부터 다시'; }
   setQualityButtons();
@@ -155,12 +192,25 @@ function applyShadowQuality() {
 }
 function setQuality(q) {
   quality = q; S.settings.quality = q;
+  dynScale = 1;
   renderer.setPixelRatio(QUAL[q].pr);
   applyShadowQuality();
   traffic?.setCount(QUAL[q].traffic);
   city?.setNearRadius(QUAL[q].near);
   peds?.setCount(QUAL[q].peds);
   setQualityButtons();
+}
+function autoPerf(dt) {
+  if (TEST || busy) return;
+  perfT += dt; perfFrames++;
+  if (perfT < 3) return;
+  const fps = perfFrames / perfT; perfT = 0; perfFrames = 0;
+  const prev = dynScale;
+  if (fps < 24 && dynScale > 0.55) dynScale = Math.max(0.55, dynScale - 0.1);
+  else if (fps > 52 && dynScale < 1) dynScale = Math.min(1, dynScale + 0.05);
+  if (dynScale !== prev) renderer.setPixelRatio(QUAL[quality].pr * dynScale);
+  if (fps < 18 && dynScale <= 0.55 && quality !== 'low' && !perfWarned) { perfWarned = true; toast('🐢 화면이 느려요. ☰ 메뉴 → 설정에서 그래픽을 \'절약\'으로 바꾸면 더 부드러워요', '', 6000); }
+  window.__fps = Math.round(fps);
 }
 function setQualityButtons() {
   document.querySelectorAll('[data-q]').forEach(b => b.classList.toggle('on', b.dataset.q === quality));
@@ -173,12 +223,21 @@ $('bNew').addEventListener('click', () => {
   S = ST.newState(); S.settings.quality = quality; startGame(true);
 });
 
+let starting = false;
 async function startGame(fresh) {
+  if (starting) return;
+  starting = true;
   audio.init();
-  $('title').classList.add('hidden');
-  $('hud').classList.remove('hidden');
+  $('tBtns').classList.add('hidden');
+  $('loadTxt').textContent = '도시로 나가는 중…';
+  await nextFrame();
   mode = 'city';
+  missions.init();
+  human.restyle(ensureLook(S));
   const home = homeEntrance();
+  const sp = S.player;
+  const valid = sp && Number.isFinite(sp.x) && Number.isFinite(sp.z) && Math.abs(sp.x) < HALF + 30 && Math.abs(sp.z) < HALF + 30;
+  if (!fresh && sp && !valid) S.player = null;   // 저장된 위치가 이상하면 집 앞에서 시작
   if (!fresh && S.player) {
     player.pos.set(S.player.x, 0, S.player.z);
     player.heading = S.player.h || 0;
@@ -189,6 +248,9 @@ async function startGame(fresh) {
   cam.yaw = player.heading + Math.PI;
   city.collide(player.pos, 0.35, { walker: true });
   city.warmup(player.pos);
+  $('title').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  $('loadTxt').textContent = '';
   traffic.reseed(player.pos); peds.reseed(player.pos);
   attachRooms(true);
   spawnPlayerCar();
@@ -196,10 +258,12 @@ async function startGame(fresh) {
   if (!fresh && S.player?.inside) await enterHome(true);
   if (S.mart?.shift) S.mart.shift = null; // 근무 중에 꺼졌으면 근무는 취소
   updateHUD(true);
+  if (ST.saveStatus.recovered) setTimeout(() => toast('🛟 저장 파일이 손상돼서 백업에서 복구했어요', 'bad', 4500), 1200);
+  starting = false;
   if (fresh || S.tutorial) {
     bigMsg('도시생활에 오신 걸 환영해요', '1일차 아침. 지갑엔 8만 원, 원룸 한 칸이 전부예요.', 3600);
     setTimeout(() => toast('왼쪽 화면을 누른 채 움직이면 걸어요 · 오른쪽 화면을 밀면 시점이 돌아가요'), 3800);
-    setTimeout(() => toast('📱 휴대폰으로 지도·택시·목표를 볼 수 있어요'), 7500);
+    setTimeout(() => toast('📱 휴대폰으로 지도·택시·미션을 볼 수 있어요 · ☰ 메뉴에 조작법이 있어요'), 7500);
     S.tutorial = false;
   }
   ST.save(S);
@@ -258,14 +322,24 @@ function makeBeacon() {
 }
 function currentTarget() {
   if (S.delivery) return S.delivery.stage === 'pickup' ? S.delivery.pickup : S.delivery.drop;
+  if (S.errand) return S.errand.to;
   if (S.waypoint) return S.waypoint;
-  return null;
+  return missions?.target() || null;
 }
 
 // ───────── 메인 루프 ─────────
 let last = performance.now(), hudT = 0, miniT = 0, saveT = 0, checkT = 0, attachT = 0;
+// 한 프레임에서 오류가 나도 게임이 멈추지 않게 (같은 오류는 한 번만 알림)
+let loopErrors = 0, lastErrMsg = '';
 function loop(now) {
   requestAnimationFrame(loop);
+  try { frame(now); } catch (e) {
+    loopErrors++;
+    if (e.message !== lastErrMsg) { lastErrMsg = e.message; console.error(e); if (mode !== 'title') toast('⚠️ 일시적인 오류가 생겼어요. 계속 진행돼요', 'bad'); }
+    if (busy && loopErrors > 120) busy = false;
+  }
+}
+function frame(now) {
   window.__frames++;
   let dt = Math.min(0.05, (now - last) / 1000); last = now;
   elapsed += dt;
@@ -297,6 +371,9 @@ function loop(now) {
   if (mode === 'city') {
     const focus = inCar && pcar ? pcar.pos : player.pos;
     sky.update(hours, focus, dt);
+    weather.update(dt, S.minutes, camera.position, false);
+    audio.loop?.('rain', weather.amt * 0.55);
+    autoPerf(dt);
     renderer.toneMappingExposure = 1 + sky.night * 0.45;
     city.update(dt, sky.night, elapsed, camera.position);
     if (!paused) {
@@ -308,6 +385,8 @@ function loop(now) {
     updateTargets(dt);
     if (!paused) updateCityInteract();
     attachT -= dt; if (attachT <= 0) { attachT = 0.5; attachRooms(); }
+    if (!paused) missions.update(dt, inCar && pcar ? pcar.pos : player.pos, !inCar);
+    if (talkingPed && !sheetOpen()) { talkingPed.talk = 1.5; talkingPed = null; }
     if (!paused && !inCar) checkWalkIn();
     // 바깥에서도 가까운 실내 문은 열리고 닫힘
     if (homeSite && homeSite.kind !== 'tower') { const [lx, lz] = homeSite.toLocal(player.pos.x, player.pos.z); if (Math.abs(lx) < 12 && Math.abs(lz) < 12) interior.updateDoor?.(dt, { x: lx, z: lz }); }
@@ -322,6 +401,9 @@ function loop(now) {
     // 실내 (실제 건물 안) — 바깥 도시도 계속 돌아감
     const pwv = playerWorld();
     sky.update(hours, pwv, dt);
+    weather.update(dt, S.minutes, camera.position, true);
+    audio.loop?.('rain', weather.amt * 0.25);
+    autoPerf(dt);
     renderer.toneMappingExposure = 1 + sky.night * 0.25;
     city.update(dt, sky.night, elapsed, camera.position);
     traffic.update(paused ? 0 : dt, pwv, null, sky.night, camera.position);
@@ -383,8 +465,55 @@ function persist() {
   else if (mode === 'mart' && martEntrance) S.player = { x: martEntrance.x + martEntrance.nx * 1.4, z: martEntrance.z + martEntrance.nz * 1.4, h: martEntrance.face, inside: false };
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
-  ST.save(S);
+  if (!ST.save(S) && !saveWarned) { saveWarned = true; toast('⚠️ 이 브라우저에서는 저장이 안 돼요 (사생활 보호 모드인지 확인해 주세요)', 'bad', 5000); }
 }
+let saveWarned = false;
+
+// ───────── 메뉴 · 도움말 ─────────
+function openMenu() {
+  if (mode === 'title' || busy) return;
+  closePhone();
+  const ago = ST.saveStatus.lastSave ? Math.max(0, Math.round((Date.now() - ST.saveStatus.lastSave) / 1000)) : null;
+  openSheet({
+    icon: '☰', title: '메뉴', sub: '게임이 잠시 멈춰 있어요',
+    html: `<button class="btn wide green" data-act="resume">▶ 계속하기</button>
+      <button class="btn wide" data-act="help">❓ 조작법 · 도움말</button>
+      <button class="btn wide" data-act="missions">🎯 오늘의 미션</button>
+      <button class="btn wide gray" data-act="settings">⚙️ 설정 (그래픽 · 소리)</button>
+      <button class="btn wide gray" data-act="save">💾 지금 저장</button>
+      <p class="note">${ago === null ? '아직 저장 전이에요' : `마지막 저장: ${ago < 60 ? ago + '초' : Math.round(ago / 60) + '분'} 전`} · 20초마다 자동 저장돼요 (이 기기의 브라우저에 저장)</p>`,
+    bind: (b) => bindActs(b, {
+      resume: () => closeSheet(),
+      help: () => helpSheet(),
+      missions: () => { closeSheet(); openPhone(); phoneApp('missions'); },
+      settings: () => { closeSheet(); openPhone(); phoneApp('settings'); },
+      save: () => { persist(); toast('💾 저장했어요', 'good'); openMenu(); },
+    }),
+  });
+}
+function helpSheet() {
+  openSheet({
+    icon: '❓', title: '조작법 · 도움말', sub: '언제든 ☰ 메뉴에서 다시 볼 수 있어요',
+    html: `<div class="help">
+      <h4>📱 터치</h4><ul>
+        <li>왼쪽 화면을 누른 채 밀기: 이동</li><li>오른쪽 화면 밀기: 시점 돌리기</li>
+        <li>두 손가락 벌리기/모으기: 확대·축소 (끝까지 당기면 1인칭)</li>
+        <li>오른쪽 아래 ⤒: 점프 · 🏃: 달리기 켜고 끄기</li><li>파란 버튼: 가게 들어가기 · 물건 고르기 같은 상호작용</li></ul>
+      <h4>⌨️ 키보드 · 마우스</h4><ul>
+        <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 또는 방향키: 이동 · <kbd>Shift</kbd>: 달리기 · <kbd>Space</kbd>: 점프</li>
+        <li>마우스 드래그: 시점 · 휠: 확대·축소</li>
+        <li><kbd>E</kbd>: 상호작용 · <kbd>F</kbd>: 차 타기/내리기 · <kbd>H</kbd>: 경적 · <kbd>M</kbd>: 지도 · <kbd>Esc</kbd>: 메뉴</li></ul>
+      <h4>🌆 도시생활 요령</h4><ul>
+        <li>배고픔·에너지·기분이 0이 되면 쓰러져요. 편의점에서 먹고 집에서 자요</li>
+        <li>돈은 편의점 알바 · 배달 · 회사 · 학교 선생님으로 벌어요</li>
+        <li>📱 휴대폰 → 🎯 미션에서 오늘의 미션을 깨면 돈과 경험치를 받아요</li>
+        <li>길에서 사람들에게 말을 걸어 보세요. 부탁을 들어주면 보상을 줘요</li>
+        <li>휴대폰 지도에서 장소를 골라 길안내나 택시를 쓸 수 있어요</li></ul></div>
+      <button class="btn wide green" data-act="ok">알겠어요</button>`,
+    bind: (b) => bindActs(b, { ok: () => closeSheet() }),
+  });
+}
+$('menuBtn').addEventListener('click', () => { audio.click(); openMenu(); });
 
 // ───────── 걷기 ─────────
 function readInput() {
@@ -620,14 +749,17 @@ function updateCityInteract() {
       return;
     }
   }
+  if (S.errand && Math.hypot(p.x - S.errand.to.x, p.z - S.errand.to.z) < 3.5) { setAct(`🙏 ${S.errand.item} 전해주기`, () => missions.finishErrand(), true); return; }
   let best = null, bd = 2.6;
   for (const e of city.entrances) {
     if (e.id === 'home' && e.homeId !== S.home) continue;
     const dd = Math.hypot(p.x - e.x, p.z - e.z);
     if (dd < bd) { bd = dd; best = e; }
   }
-  if (best) setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best));
-  else setAct(null);
+  if (best) { setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best)); return; }
+  const ped = peds.nearest(p, 2.2);
+  if (ped) { setAct(`💬 ${ped.name}에게 말 걸기`, () => { talkingPed = ped; ped.talk = 999; missions.talkSheet(ped, ST.hour(S) % 24); }); return; }
+  setAct(null);
 }
 $('btnAct').addEventListener('click', () => { if (actHandler && !busy) { audio.click(); actHandler(); } });
 $('btnCar').addEventListener('click', () => { if (carHandler && !busy) { audio.click(); carHandler(); } });
@@ -650,7 +782,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' && actHandler && !sheetOpen() && !busy) actHandler();
   if (e.code === 'KeyF' && carHandler && !sheetOpen() && !busy) carHandler();
   if (e.code === 'KeyH' && inCar) audio.horn();
-  if (e.code === 'Escape') { closeSheet(); closePhone(); }
+  if (e.code === 'Escape') {
+    if (!$('mg').classList.contains('hidden')) return;
+    if (sheetOpen()) closeSheet();
+    else if (!phone.classList.contains('hidden')) closePhone();
+    else if (editing) endEdit();
+    else openMenu();
+  }
+  if (e.code === 'KeyM' && !sheetOpen() && !busy) openPhone('map');
   if (e.code === 'KeyR' && !inCar) { player.run = !player.run; $('btnRun').classList.toggle('on', player.run); }
 });
 
@@ -684,6 +823,7 @@ function earn(amount, reason) {
     reason += ` (학자금 상환 ${won(repay)}${S.loan <= 0 ? ' · 대출 다 갚았어요!' : ''})`;
   }
   S.money += amount; S.totalEarned += amount; flashMoney(true);
+  missions.event('earn');
   audio.coin();
   toast(`💰 ${reason} +${won(amount)}`, 'good', 3200);
   checkGoals();
@@ -694,6 +834,7 @@ function flashMoney(good) {
   updateHUD(true);
 }
 function eat(f, minutes = 10) {
+  missions?.event('eat');
   S.hunger = ST.clamp(S.hunger + f.hunger);
   if (f.energy) S.energy = ST.clamp(S.energy + f.energy);
   S.mood = ST.clamp(S.mood + (f.price > 8000 ? 8 : 2));
@@ -732,6 +873,8 @@ function updateHUD(force) {
   if (S.delivery) {
     const dd = Math.round(Math.hypot(p.x - t.x, p.z - t.z));
     html = S.delivery.stage === 'pickup' ? `📦 <b>${t.name}</b>에서 음식 픽업 <span class="dist">${dd}m</span><small>${won(S.delivery.pay)} 배달 · 빛기둥을 따라가세요</small>` : `🛵 <b>${t.name}</b>로 배달 <span class="dist">${dd}m</span><small>${won(S.delivery.pay)} · 시간 안에 가면 팁!</small>`;
+  } else if (S.errand && mode === 'city') {
+    html = `🙏 <b>${S.errand.item}</b> → ${t.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span><small>${S.errand.from}의 부탁 · 보상 ${won(S.errand.money)}</small>`;
   } else if (S.waypoint) {
     html = `📍 ${S.waypoint.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span>`;
   } else if (mode === 'stat') {
@@ -741,9 +884,11 @@ function updateHUD(force) {
   } else if (mode === 'school') {
     html = schoolGame.hudText(schoolEntrance.school);
   } else if (mode === 'city') {
-    const g = GOALS.find(g => !S.goalsDone?.includes(g.id));
-    if (g) html = `🎯 ${g.text}<small>${g.hint}</small>`;
+    html = missions.hudLine();
+    if (!html) { const g = GOALS.find(g => !S.goalsDone?.includes(g.id)); if (g) html = `🏆 ${g.text}<small>${g.hint}</small>`; }
   }
+  const L = missions.level();
+  $('lvl').textContent = 'Lv.' + L.lv; $('xpFill').style.width = Math.round(L.xp / L.need * 100) + '%';
   if ($('objective').innerHTML !== html) $('objective').innerHTML = html;
   $('joyHint').classList.toggle('hidden', elapsed > 40 || mode !== 'city' || inCar || player.speed > 0.5 || editing);
   if (editing) $('joyHint').classList.add('hidden');
@@ -867,6 +1012,7 @@ function eatFood(id, { minutes = 10, moodBonus = 0 } = {}) {
   const f = foodInfo(id);
   if (!S.inventory.food[id]) return;
   S.inventory.food[id]--; if (S.inventory.food[id] <= 0) delete S.inventory.food[id];
+  missions.event('eat');
   S.hunger = ST.clamp(S.hunger + (f.hunger || 0));
   if (f.energy) S.energy = ST.clamp(S.energy + f.energy);
   S.mood = ST.clamp(S.mood + (f.mood || 0) + moodBonus);
@@ -1729,7 +1875,7 @@ function openPhone(app) {
   $('phClock').textContent = ST.clock(S).text.replace('오전 ', '').replace('오후 ', '');
   if (app === 'map') return phoneMap();
   const apps = [
-    ['map', '🗺️', '지도·택시', '#2a9d8f'], ['bank', '💳', '은행', '#264653'], ['me', '🧑', '내 정보', '#e76f51'], ['goals', '🏆', '인생 목표', '#f4a261'],
+    ['missions', '🎯', '미션', '#d62828'], ['fashion', '🛍️', '패션몰', '#c2185b'], ['map', '🗺️', '지도·택시', '#2a9d8f'], ['bank', '💳', '은행', '#264653'], ['me', '🧑', '내 정보', '#e76f51'], ['goals', '🏆', '인생 목표', '#f4a261'],
     ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['job', '🧑‍💼', '알바', '#1f8a4c'], ['school', '🎓', '학교', '#5a3a8a'],
     ['settings', '⚙️', '설정', '#6c757d'],
   ];
@@ -1739,6 +1885,14 @@ function openPhone(app) {
 }
 function phoneApp(id) {
   if (id === 'map') return phoneMap();
+  if (id === 'fashion') return fashionApp();
+  if (id === 'missions') {
+    phScreen.innerHTML = missions.phoneHtml();
+    phScreen.querySelectorAll('[data-claim]').forEach(b => b.addEventListener('click', () => { missions.claim(b.dataset.claim); phoneApp('missions'); }));
+    phScreen.querySelectorAll('[data-bonus]').forEach(b => b.addEventListener('click', () => { missions.claimBonus(); phoneApp('missions'); }));
+    phScreen.querySelectorAll('[data-way]').forEach(b => b.addEventListener('click', () => { const m = missions.ensureDaily().list.find(x => x.id === b.dataset.way); S.waypoint = { ...m.target }; closePhone(); toast(`📍 ${m.target.name} 길안내 시작`); }));
+    return;
+  }
   if (id === 'bag') { closePhone(); return fridgeSheet(true); }
   if (id === 'school') {
     const U = S.uni, T = S.teach;
@@ -1803,6 +1957,32 @@ function phoneApp(id) {
     $('resetAll').addEventListener('click', () => { if (confirm('정말 모든 진행을 지울까요?')) { ST.wipe(); location.reload(); } });
   }
 }
+// ───────── 패션몰 · 옷장 (주문하면 바로 도착, 언제든 갈아입기) ─────────
+let fashionTab = 'top';
+function fashionApp() {
+  ensureLook(S);
+  const list = OUTFITS.filter(o => o.cat === fashionTab);
+  phScreen.innerHTML = `<div class="ph-title">🛍️ 한빛 패션몰</div>
+    <div class="note" style="color:#ddd">사면 바로 옷장에 들어와요 · 산 옷은 언제든 무료로 갈아입어요</div>
+    <div class="tabs" style="flex-wrap:wrap">${Object.entries(OUTFIT_CATS).map(([k, n]) => `<button data-tab="${k}" class="${k === fashionTab ? 'on' : ''}">${n}</button>`).join('')}</div>
+    ${fashionTab === 'face' ? `<div class="note" style="color:#ddd;margin-top:8px">피부색 (무료)</div><div style="display:flex;gap:8px;margin:4px 0 10px">${SKIN_TONES.map(c => `<button data-skin="${c}" style="width:34px;height:34px;border-radius:50%;background:#${c.toString(16).padStart(6, '0')};border:3px solid ${S.look.skin === c ? '#46d1ff' : 'rgba(255,255,255,.25)'}"></button>`).join('')}</div>` : ''}
+    ${list.map(o => {
+      const own = S.wardrobe.includes(o.id), on = S.wearing[o.cat] === o.id;
+      return `<div class="row"><div class="ic">${swatch(o)}</div><div class="info"><b>${o.name}</b><span>${on ? '입고 있어요' : own ? '내 옷장에 있어요' : won(o.price)}</span></div>
+        ${on ? '<button class="btn gray" disabled>착용 중</button>' : own ? `<button class="btn" data-wear="${o.id}">입기</button>` : `<button class="btn green" data-buy="${o.id}">구매</button>`}</div>`;
+    }).join('')}`;
+  phScreen.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { fashionTab = b.dataset.tab; audio.click(); fashionApp(); }));
+  phScreen.querySelectorAll('[data-skin]').forEach(b => b.addEventListener('click', () => { S.look.skin = +b.dataset.skin; human.restyle(S.look); persist(); fashionApp(); }));
+  phScreen.querySelectorAll('[data-wear]').forEach(b => b.addEventListener('click', () => { wear(S, b.dataset.wear); human.restyle(S.look); audio.play('pick'); persist(); fashionApp(); }));
+  phScreen.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => {
+    const o = OUTFITS.find(x => x.id === b.dataset.buy);
+    if (S.wardrobe.includes(o.id)) return;        // 같은 옷은 한 번만
+    if (!pay(o.price)) return;
+    S.wardrobe.push(o.id); wear(S, o.id); human.restyle(S.look);
+    audio.play('pay'); toast(`📦 ${o.name} 도착! 바로 입었어요`, 'good');
+    missions.addXp(5); persist(); fashionApp();
+  }));
+}
 function phoneMap() {
   phScreen.innerHTML = `<div class="ph-title">🗺️ 지도</div><canvas id="mapCanvas" width="600" height="600"></canvas>
     <div class="note" style="color:#ddd;margin-top:10px">장소를 골라 <b>택시</b>로 바로 가거나 <b>길 안내</b>를 받아요.</div>
@@ -1847,6 +2027,9 @@ async function taxi(e) {
   cam.yaw = player.heading + Math.PI;
   city.collide(player.pos, 0.35, { walker: true });
   city.warmup(player.pos);
+  $('title').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  $('loadTxt').textContent = '';
   traffic.reseed(player.pos); peds.reseed(player.pos); attachRooms(true);
   human.root.position.copy(player.pos);
   await wait(500);
@@ -1878,12 +2061,12 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
-document.addEventListener('visibilitychange', () => { if (document.hidden && mode !== 'title') persist(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { controls?.reset(); controls?.keys.clear(); jumpHeld = false; if (mode !== 'title') persist(); } });
 window.addEventListener('pagehide', () => { if (mode !== 'title') persist(); });
 resize();
 
-boot().catch(err => { $('loadTxt').textContent = '오류: ' + err.message; console.error(err); });
+boot().catch(err => { console.error(err); window.__bootFailed = true; window.__bootFail?.('게임을 불러오지 못했어요', err && err.message ? err.message : String(err)); });
 
 // 디버그/테스트용
-window.__game = { get stat() { return stat; }, get statGame() { return statGame; }, enterStat: () => walkInto(city.sites.find(s => s.kind === 'stat')), get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
+window.__game = { get missions() { return missions; }, get peds() { return peds; }, get stat() { return stat; }, get statGame() { return statGame; }, enterStat: () => walkInto(city.sites.find(s => s.kind === 'stat')), get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
   renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

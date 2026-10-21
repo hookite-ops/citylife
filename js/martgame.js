@@ -158,6 +158,7 @@ export class MartGame {
           }
           M.basket = {};
           closeSheet();
+          this.c.onBuy?.();
           this.c.audio.play('pay');
           toast(`🧾 결제 완료 ${won(total)} · 산 물건은 가방에 들어갔어요`, 'good');
           this.c.persist();

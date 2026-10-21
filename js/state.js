@@ -34,17 +34,41 @@ export function newState() {
   };
 }
 
-export function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    const base = newState();
-    return Object.assign(base, s, { inventory: Object.assign(base.inventory, s.inventory || {}), placed: Object.assign(base.placed, s.placed || {}), settings: Object.assign(base.settings, s.settings || {}) });
-  } catch (e) { return null; }
+// 저장: 본 저장 + 백업 저장 두 군데. 본 저장이 깨지면 백업에서 복구
+const BAK = KEY + '_bak';
+export let saveStatus = { ok: true, recovered: false, lastSave: 0 };
+function parse(raw) {
+  if (!raw) return null;
+  const s = JSON.parse(raw);
+  if (!s || typeof s !== 'object' || typeof s.minutes !== 'number' || typeof s.money !== 'number') throw new Error('bad save');
+  return s;
 }
-export function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
-export function wipe() { try { localStorage.removeItem(KEY); } catch (e) {} }
+export function load() {
+  let s = null;
+  try { s = parse(localStorage.getItem(KEY)); } catch (e) {
+    try { s = parse(localStorage.getItem(BAK)); saveStatus.recovered = !!s; } catch (e2) { s = null; }
+  }
+  if (!s) return null;
+  const base = newState();
+  const out = Object.assign(base, s, {
+    inventory: Object.assign(base.inventory, s.inventory || {}), placed: Object.assign(base.placed, s.placed || {}),
+    settings: Object.assign(base.settings, s.settings || {}), stats: Object.assign(base.stats, s.stats || {}),
+  });
+  if (!Number.isFinite(out.money)) out.money = 0;
+  for (const k of ['hunger', 'energy', 'mood']) if (!Number.isFinite(out[k])) out[k] = 60;
+  return out;
+}
+let saveN = 0;
+export function save(s) {
+  try {
+    const raw = JSON.stringify(s);
+    localStorage.setItem(KEY, raw);
+    if (++saveN % 3 === 1) localStorage.setItem(BAK, raw);   // 가끔 백업도 갱신
+    saveStatus.ok = true; saveStatus.lastSave = Date.now();
+    return true;
+  } catch (e) { saveStatus.ok = false; return false; }
+}
+export function wipe() { try { localStorage.removeItem(KEY); localStorage.removeItem(BAK); } catch (e) {} }
 
 export function day(s) { return Math.floor(s.minutes / 1440) + 1; }
 export function hour(s) { return (s.minutes % 1440) / 60; }

@@ -80,7 +80,7 @@ class Grid {
 }
 
 export class City {
-  constructor(scene, quality) {
+  constructor(scene, quality, lazy) {
     this.scene = scene;
     this.colliders = [];
     this.grid = new Grid(40);
@@ -104,18 +104,19 @@ export class City {
     this.setNearRadius(220);
     this.makeMaterials();
     this.static = { props: new GB(), side: new GB(), curb: new GB(), grass: new GB(), pave: new GB(), asph: new GB(), white: new GB(), yellow: new GB(), hedge: new GB() };
-    this.buildPlan();
-    this.buildGround();
-    this.buildMarkings();
-    this.buildLakePark();
-    this.buildStreetFurniture();
-    this.buildSignals();
-    this.assignChunks();
-    this.flushStatic();
-    this.buildFarAll();
-    this.buildSites();
-    this.buildOutskirts();
-    this.buildRings();
+    // 단계별로 지어서 로딩 화면에 진행률을 보여줄 수 있게
+    this.steps = [
+      ['도시 계획을 세우는 중', () => this.buildPlan()],
+      ['도로와 인도를 까는 중', () => { this.buildGround(); this.buildMarkings(); }],
+      ['호수공원을 꾸미는 중', () => this.buildLakePark()],
+      ['가로등과 신호등을 세우는 중', () => { this.buildStreetFurniture(); this.buildSignals(); }],
+      ['건물을 짓는 중', () => { this.assignChunks(); this.flushStatic(); this.buildFarAll(); }],
+      ['가게와 집 안을 꾸미는 중', () => this.buildSites()],
+      ['도시 외곽을 그리는 중', () => { this.buildOutskirts(); this.buildRings(); this.finishGrid(); }],
+    ];
+    if (!lazy) for (const [, f] of this.steps) f();
+  }
+  finishGrid() {
     for (const c of this.colliders) this.grid.add(c);
     // 나중에 colliders.push 로 추가되는 것도 격자에 들어가게
     const grid = this.grid, arr = this.colliders, push = arr.push.bind(arr);

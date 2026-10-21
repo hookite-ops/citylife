@@ -27,6 +27,10 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; }
 .clock { padding: 7px 12px; }
 #clk { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; font-variant-numeric: tabular-nums; }
 #day { font-size: 11px; color: var(--tx2); margin-top: 1px; }
+.lvl { padding: 7px 11px; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 52px; }
+.lvl b { font-size: 14px; font-weight: 900; color: #ffd21a; }
+.xpb { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.15); overflow: hidden; }
+.xpb i { display: block; height: 100%; width: 0; background: #ffd21a; transition: width 0.4s; }
 .money { padding: 7px 12px; display: flex; align-items: center; gap: 4px; font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
 .money .won { color: var(--good); }
 .money.flash { animation: flash 0.6s; }
@@ -43,6 +47,10 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; }
 .need.mid .bar b { background: var(--warn); }
 @keyframes blink { 50% { opacity: 0.45; } }
 
+#tr .tr-btns { display: flex; gap: 8px; }
+.help h4 { margin: 14px 0 6px; font-size: 14px; color: var(--acc); }
+.help ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--tx); }
+.help kbd { display: inline-block; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); font-size: 12px; font-family: inherit; }
 #tr { position: absolute; top: calc(10px + var(--sa-t)); right: calc(10px + var(--sa-r)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 #mini { width: 118px; height: 118px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); background: #1a2028; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35); }
 .round { width: 50px; height: 50px; border-radius: 50%; background: var(--bg2); border: 1px solid var(--line); font-size: 23px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
@@ -175,7 +183,15 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; }
 .t-in { position: relative; text-align: center; padding: 20px; }
 .t-logo { font-size: clamp(46px, 11vw, 92px); font-weight: 900; letter-spacing: -3px; background: linear-gradient(180deg, #fff, #9fd8ff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 30px rgba(70, 209, 255, 0.35)); }
 .t-sub { color: var(--tx2); font-size: 14px; letter-spacing: 1px; margin-top: 2px; }
-#loadTxt { margin-top: 28px; font-size: 14px; color: var(--acc); }
+#loadTxt { margin-top: 10px; font-size: 14px; color: var(--acc); min-height: 20px; }
+#loadBar { width: min(320px, 70vw); height: 6px; margin: 28px auto 0; border-radius: 6px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+#loadBar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #2fb8ff, #7ae0ff); border-radius: 6px; transition: width 0.3s; }
+#loadErr { margin: 22px auto 0; max-width: min(420px, 86vw); padding: 16px; border-radius: 16px; background: rgba(255, 90, 74, 0.14); border: 1px solid rgba(255, 90, 74, 0.5); }
+#loadErr b { font-size: 16px; }
+#loadErr p { margin: 8px 0 12px; font-size: 13px; color: var(--tx2); word-break: break-all; }
+.err-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.err-btns button { padding: 10px 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.1); font-weight: 700; }
+.err-btns button.primary { background: var(--acc); color: #022; }
 .t-btns { margin-top: 26px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .primary { width: 240px; padding: 15px; border-radius: 16px; background: linear-gradient(180deg, #2fb8ff, #1c86e0); font-weight: 800; font-size: 17px; box-shadow: 0 8px 26px rgba(28, 134, 224, 0.4); }
 #bNew.secondary { background: rgba(255, 255, 255, 0.1); box-shadow: none; }

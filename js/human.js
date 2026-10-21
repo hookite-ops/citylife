@@ -105,12 +105,13 @@ function rig(o, shadow) {
     const knee = new THREE.Group(); hip.add(knee);
     legs.push({ hip, knee });
   }
-  return { root, body, headPivot, arms, legs };
+  return { root, body, headPivot, arms, legs, face };
 }
 
 // 플레이어용
 export function createHuman(o = {}) {
-  const opts = { skin: o.skin ?? 0xf2c49b, hair: o.hair ?? 0x2a1d14, hairStyle: o.hairStyle || 'short', shirt: o.shirt ?? 0x2f6fd6, pants: o.pants ?? 0x2a2f38, shoes: o.shoes ?? 0x1c1c1c, jacket: o.jacket, face: o.face || 'smile', logo: o.logo };
+  const norm = (o) => ({ skin: o.skin ?? 0xf2c49b, hair: o.hair ?? 0x2a1d14, hairStyle: o.hairStyle || 'short', shirt: o.shirt ?? 0x2f6fd6, pants: o.pants ?? 0x2a2f38, shoes: o.shoes ?? 0x1c1c1c, jacket: o.jacket ?? null, face: o.face || 'smile', logo: o.logo ?? null, hat: o.hat ?? null, tie: o.tie ?? null, sleeve: o.sleeve ?? null });
+  const opts = norm(o);
   const r = rig(opts, true);
   const { root, body, arms, legs } = r;
   let phase = 0;
@@ -136,6 +137,15 @@ export function createHuman(o = {}) {
       // 로블록스 기본 대기 동작: 살짝 숨쉬기
       body.position.y = moving ? Math.abs(Math.cos(phase)) * 0.03 : Math.sin(performance.now() / 600) * 0.006;
       body.rotation.x = 0;
+    },
+    // 옷 갈아입기: 같은 뼈대에 모양만 바꿔 끼움
+    restyle(o2) {
+      const g = getParts(norm(o2));
+      r.body.children[0].geometry = g.torso;
+      r.headPivot.children[0].geometry = g.head;
+      r.face.material = faceMat(o2.face || 'smile');
+      for (const a of r.arms) a.shoulder.children[0].geometry = g.arm;
+      for (const l of r.legs) l.hip.children[0].geometry = g.leg;
     },
     setPose(p) {
       api.pose = p;
