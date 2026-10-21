@@ -157,7 +157,7 @@ export class BldgGame {
     if (this.view) { this.clearNpcs(); this.view.dispose(); this.c.shop?.()?.onExitBuilding?.(); }
     this.n = n; this.curUnit = null;
     const f = B.floorOf(n);
-    const view = new FloorView(B, n, this.lifts);
+    const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit });
     this.view = view;
     // 아래층 덩어리 (창밖으로 내려다볼 때)
     const base = B.kind === 'tower' && n >= 4 ? B.spec.y0 : B.spec.y0;
@@ -196,6 +196,7 @@ export class BldgGame {
     this.clearNpcs();
     this.riding = null;
     this.c.shop?.()?.onExitBuilding?.();
+    if (this.c.shop?.()?.c.jobs?.onShift) this.c.shop().c.jobs.clockOut(true);
     this.c.leaveSite();
     this.c.city.setHidden([]);
     if (this.view) { this.view.dispose(); this.view = null; }
@@ -284,7 +285,11 @@ export class BldgGame {
         return { label: `🔼 계단으로 ${floorLabel(z.to, B)}`, fn: () => this.stairs(z.to, 1), green: true };
       }
       case 'stairsDown': return { label: `🔽 계단으로 ${floorLabel(z.to, B)}`, fn: () => this.stairs(z.to, -1), green: true };
-      case 'homedoor': return { label: `🔔 ${z.unit.num || ''} 초인종 누르기`, fn: () => this.doorbell(z.unit) };
+      case 'homedoor': {
+        const h = S.homeUnit;
+        if (h && h.bid === B.id && h.n === this.n && h.k === z.unit.k) return { label: `🔑 우리 집 ${z.unit.num || ''} 들어가기`, fn: () => this.c.enterHome?.(), green: true };
+        return { label: `🔔 ${z.unit.num || ''} 초인종 누르기`, fn: () => this.doorbell(z.unit) };
+      }
       case 'homeview': return { label: '🏠 빈 집 둘러보기 · 매물 정보', fn: () => this.homeInfo(z.home) };
       case 'private': return { label: '🔒 주민 전용 (잠김)', fn: () => toast('🔒 주민 카드가 있어야 들어갈 수 있어요', 'bad') };
       case 'directory': return { label: '🗂️ 층별 안내 보기', fn: () => this.directory() };
@@ -354,14 +359,26 @@ export class BldgGame {
   }
   homeInfo(r) {
     const B = this.B;
-    const area = Math.round((r.x1 - r.x0) * (r.z1 - r.z0) * 0.3025 * 1.25);
-    const m = { A: 1.3, B: 1.0, C: 0.75 }[B.grade];
-    const deposit = Math.round(area * 35 * m) * 100000, rent = Math.round(area * 2.2 * m) * 10000, jeonse = Math.round(area * 1100 * m) * 100000, buy = Math.round(area * 1900 * m) * 100000;
-    const won = (v) => v >= 1e8 ? `${(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억` : `${Math.round(v / 1e4).toLocaleString()}만`;
+    const py = Math.max(5, Math.round((r.x1 - r.x0) * (r.z1 - r.z0) * 0.85 / 3.3));
+    const pr = this.c.homePrices(B.kind, py, B.grade), w2 = this.c.won2;
     openSheet({
-      icon: '🏠', title: `${B.name} ${r.num || ''}`, sub: `약 ${area}평 · 지은 지 ${B.age}년 (${B.grade}등급) · 빈 집`,
-      html: `<div class="grid2"><div class="stat"><span>월세</span><b>${won(deposit)} / ${won(rent)}</b></div><div class="stat"><span>전세</span><b>${won(jeonse)}</b></div><div class="stat"><span>매매</span><b>${won(buy)}</b></div><div class="stat"><span>관리비</span><b>월 ${Math.round(area * 0.6)}만 원</b></div></div><p class="note">계약은 동네 부동산에서 할 수 있어요.</p>`,
+      icon: '🏠', title: `${B.name} ${r.num || ''}`, sub: `약 ${py}평 · 지은 지 ${B.age}년 (${B.grade}등급) · 빈 집`,
+      html: `<div class="grid2"><div class="stat"><span>월세</span><b>${w2(pr.deposit)} / ${w2(pr.rent)}</b></div><div class="stat"><span>전세</span><b>${w2(pr.jeonse)}</b></div><div class="stat"><span>매매</span><b>${w2(pr.buy)}</b></div><div class="stat"><span>관리비</span><b>월 ${w2(pr.fee)}</b></div></div><p class="note">계약은 동네 부동산에서 해요 (부동산 매물에 나오면 계약할 수 있어요).</p>`,
     });
+  }
+  // 우리 집(임대한 호실) 문 앞으로
+  enterUnit(h) {
+    const spec = this.c.city.bldgs.find(q => q.seed === h.bid);
+    if (!spec) return;
+    const B = this.c.city.bldgOf(spec);
+    if (this.B !== B) this.lifts = new Lifts(B);
+    this.B = B;
+    this.entryDoor = this.c.city.bdoors.find(q => q.spec === spec && (q.door?.secure || q.lobby)) || this.c.city.bdoors.find(q => q.spec === spec);
+    const p = new FloorView(B, h.n, this.lifts, { myHome: h }).plan; // 문 위치만
+    const d = p.doors.find(q => q.unit && q.unit.k === h.k);
+    let x = 0, z = 0, hd = 0;
+    if (d) { const u = d.unit; const c = d.ax === 'x' ? Math.sign((u.z0 + u.z1) / 2 - d.z) : Math.sign((u.x0 + u.x1) / 2 - d.x); const nx = d.ax === 'x' ? 0 : -c, nz = d.ax === 'x' ? -c : 0; x = d.x + nx * 0.9; z = d.z + nz * 0.9; hd = Math.atan2(nx, nz); }
+    this.setupFloor(h.n, { x, z, heading: hd }, true);
   }
   directory() {
     const rows = [];

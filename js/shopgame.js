@@ -47,6 +47,8 @@ export class ShopGame {
       return null;
     }
     const s = this.session(z);
+    this.bldg = bldg;
+    if (z.kind === 'jobpost') return this.c.jobs?.postAction(z, s, bldg) || null;
     // 앉아 있는 동안은 자리 메뉴
     if (this.seatedAt) return this.seatAction(s);
     if (!this.open(t)) {
@@ -83,7 +85,8 @@ export class ShopGame {
   // ───────── 카운터 ─────────
   counterAction(z, s, style) {
     const fam = s.fam;
-    if (this.c.jobAt?.(z, s)) return this.c.jobAt(z, s);
+    const ja = this.c.jobs?.counterAction(z, s, this.bldg); if (ja) return ja;
+    if (this.c.jobs?.onShift) return { label: '🧑‍💼 다른 가게에서 근무 중이에요', fn: () => {} };
     if (s.owed > 0) return { label: `🧾 계산하기 · ${won(s.owed)}`, fn: () => this.payBill(s), green: true };
     if (s.stage === 'ready' && (style === 'counter' || style === 'kiosk')) return this.pickupAction(z, s);
     if (style === 'table') return { label: '🙋 직원: "편한 자리에 앉으세요~"', fn: () => toast('🪑 빈 테이블에 앉으면 주문을 받아요') };
@@ -647,6 +650,11 @@ export class ShopGame {
 
   // ───────── 가게를 떠날 때 (먹튀 방지) ─────────
   onLeaveUnit(unit) {
+    const jg = this.c.jobs;
+    if (jg?.onShift && jg.shift.s.unit === unit) {
+      openSheet({ icon: '🏃', title: '조퇴할까요?', sub: '근무 시간이 아직 남았어요', html: `<p class="note">지금 나가면 일한 시간만큼만 받고 경고를 받아요.</p><button class="btn wide red" data-act="go">조퇴하기</button><button class="btn wide gray" data-act="stay">계속 일하기</button>`, bind: (b) => bindActs(b, { go: () => { closeSheet(); jg.clockOut(true); }, stay: () => closeSheet() }) });
+      return true;
+    }
     const s = this.sess;
     if (!s || s.unit !== unit) return false;
     if (s.owed > 0) {

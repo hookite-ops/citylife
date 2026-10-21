@@ -3,6 +3,7 @@ import { FUR, COL } from './bkit.js';
 import { TYPES } from './tenants.js';
 import { MENUS } from './shopdata.js';
 import { seeded } from './geo.js';
+import { JOB_TYPES } from './jobs.js';
 
 // ───────── 업종별 실내 (칸 크기에 맞춰 자동 배치) ─────────
 // 칸 좌표 u(문 벽을 따라, 들어갈 때 오른쪽 +) · v(문에서 안쪽 깊이)
@@ -639,6 +640,11 @@ export function buildUnit(k, r, tenant, door, ctx) {
   if (floors[fam]) k.floor(floors[fam], ...minmax(u.p(-u.w / 2 + 0.01, 0.01), u.p(u.w / 2 - 0.01, u.d - 0.01)));
   try { (FAM[fam] || FAM.office)(u); }
   catch (e) { console.warn('unit build failed', fam, e); }
+  // 알바 모집 공고 (문 옆 벽)
+  if (JOB_TYPES.includes(tenant.type)) {
+    const pu = u.F.du > 0 ? u.F.du - 1.3 : u.F.du + 1.3;
+    if (Math.abs(pu) < u.w / 2 - 0.4) { u.sign(pu, 1.5, 0.08, 0.5, 0.65, 0, 1, (x, W, H) => { x.fillStyle = '#fffbe8'; x.fillRect(0, 0, W, H); x.fillStyle = '#d32f2f'; x.font = `800 ${H * 0.16}px sans-serif`; x.textAlign = 'center'; x.fillText('알바 모집', W / 2, H * 0.2); x.fillStyle = '#333'; x.font = `600 ${H * 0.09}px sans-serif`; ['시급 10,320원~', '주 2일 이상', '초보 환영', '문의: 카운터'].forEach((t, i) => x.fillText(t, W / 2, H * (0.38 + i * 0.14))); }, 120); u.zone('jobpost', pu - 0.5, 0.15, pu + 0.5, 1.0); }
+  }
   // 칸 전체 존 (가게 안에 있음)
   u.zone('inshop', -u.w / 2, 0, u.w / 2, u.d, { big: true });
   return u;

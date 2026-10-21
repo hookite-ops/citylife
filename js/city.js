@@ -878,6 +878,15 @@ export class City {
     for (const b of blocks) if (b.mid) { const v = b.mid.visible; this.disposeGroup(b.mid); b.mid = null; this.buildMidBlock(b); b.mid.visible = v; }
     for (const i of regions) this.buildFarRegion(i);
   }
+  // 가게가 바뀐 건물 다시 그리기 (간판)
+  refreshSpec(s) {
+    s.B = null;
+    const c = s.chunk; if (c?.near) { this.disposeGroup(c.near); c.near = null; this.buildNearChunk(c); }
+    // 문 이름도 새로
+    const old = this.bdoors.filter(d => d.spec === s);
+    for (const d of old) { this.bdoors.splice(this.bdoors.indexOf(d), 1); const k = Math.floor(d.x / 20) + ',' + Math.floor(d.z / 20); const a = this.bdGrid.get(k); if (a) a.splice(a.indexOf(d), 1); }
+    try { for (const e of entrancesOf(this.bldgOf(s))) this.addBDoor(s, e); } catch (e) { console.warn(e); }
+  }
   // 들어갈 수 있는 건물들 + 문 위치
   buildBldgs() {
     this.bdoors = []; this.bdGrid = new Map(); this.bldgs = [];

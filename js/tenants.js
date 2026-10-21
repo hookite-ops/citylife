@@ -123,6 +123,7 @@ export function tenantOf(seed, n, k, w = 8, grade = 'B', kind = 'shop', attempt 
   return decorate(pool[Math.floor(R() * pool.length)]);
 }
 function decorate(slot, extra = {}) {
+  if (!SHOP_NAMES[slot]) return { slot, name: extra.name || '가게', color: extra.color || '#333333', type: extra.type || 'office', fr: false, ...extra };
   const [name, color, type, fr] = SHOP_NAMES[slot];
   return { slot, name, color, type, fr: !!fr, ...extra };
 }

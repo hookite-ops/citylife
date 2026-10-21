@@ -43,7 +43,7 @@ export class FloorView {
       if (r.kind !== 'unit') continue;
       const d = p.doors.find(q => q.unit === r);
       if (r.home) {
-        const vacant = homeVacant(this.B, this.n, r.k);
+        const vacant = homeVacant(this.B, this.n, r.k) && !this.isMine(r);
         r.vacant = vacant;
         if (vacant) { const zs = buildHome(k, r, d, { plan: p, B: this.B }); for (const z of zs || []) this.zones.push(z); }
       } else {
@@ -197,9 +197,10 @@ export class FloorView {
     }
     solidC(u, s.b - s.a);
   }
+  isMine(u) { const h = this.opts.myHome; return !!(h && u && h.bid === this.B.id && h.n === this.n && h.k === u.k); }
   isLocked(d) {
     if (d.kind === 'elev') return true;
-    if (d.unit?.home) return !homeVacant(this.B, this.n, d.unit.k);
+    if (d.unit?.home) return this.isMine(d.unit) || !homeVacant(this.B, this.n, d.unit.k);
     if (d.unit?.kind === 'private') return true;
     return false;
   }

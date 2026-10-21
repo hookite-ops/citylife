@@ -26,6 +26,11 @@ import { runMeal, pickMealSheet } from './meal.js';
 import { BldgGame } from './bldggame.js';
 import { tenantMap as tenantMapFn } from './bplan.js';
 import { ShopGame, menuFood } from './shopgame.js';
+import { JobGame } from './jobs.js';
+import { RealEstate, homePrices, shopPrices, pyeong, won2 } from './realestate.js';
+import { setCustomSlot } from './buildings.js';
+import { isOpenType } from './bldggame.js';
+import { TYPES as BTYPES } from './tenants.js';
 import { PRODUCTS } from './products.js';
 import { ensureWallet, paySheet, atmSheet, openStatus, closedNotice, hoursText, ClosingWatch, HOURS } from './commerce.js';
 
@@ -174,9 +179,15 @@ async function boot() {
     setRoom: (v) => { room = v; }, setHeading: (h) => { player.heading = h; cam.yaw = h + Math.PI; },
     leaveSite: () => leaveSite(), setBusy: (v) => { busy = v; }, persist: () => persist(), updateHUD: (f) => updateHUD(f),
     passTime: (m, md) => ST.passTime(S, m, md || 'idle'),
-    shop: () => shopGame,
+    shop: () => shopGame, enterHome: () => enterHome(), homePrices: (...a) => homePrices(...a), won2: (v) => won2(v),
   });
+  realEstate = new RealEstate({
+    get S() { return S; }, city, audio, persist: () => persist(), setupHome: () => setupHome(), flash: (g) => flashMoney(g), checkGoals: () => checkGoals(), missions,
+    refreshSpec: (sp) => city.refreshSpec(sp), setSign: (i, n, c) => setCustomSlot(i, n, c),
+  });
+  jobGame = new JobGame({ get S() { return S; }, audio, myShop: (bid, n, k) => realEstate.myShopOf(bid, n, k), earn: (a, r) => earn(a, r), persist: () => persist(), hoursOf: (t) => BTYPES[t]?.hours || [9, 21] });
   shopGame = new ShopGame({
+    jobs: jobGame,
     get S() { return S; }, audio, player, human, missions,
     checkout: (t, o, f) => checkout(t, o, f), payCash: (a) => payCash(a), persist: () => persist(),
     passTime: (m, md) => ST.passTime(S, m, md || 'idle'), eatMeal: (ids, o) => eatMeal(ids, o), foodInfo,
@@ -185,6 +196,7 @@ async function boot() {
     martGoods: () => PRODUCTS.filter(p => p.price),
     applyGoods: (key, g, n) => applyGoods(key, g, n),
     nearestSeat: (z) => nearestSeat(z), seat: (spot) => seatPlayer(spot),
+    realty: (s) => realEstate.office(s.t.name), vacantInfo: (unit, b) => vacantInfo(unit, b),
   });
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
@@ -260,6 +272,7 @@ async function startGame(fresh) {
   missions.init();
   human.restyle(ensureLook(S));
   ensureWallet(S);
+  realEstate.restore();
   const home = homeEntrance();
   const sp = S.player;
   const valid = sp && Number.isFinite(sp.x) && Number.isFinite(sp.z) && Math.abs(sp.x) < HALF + 30 && Math.abs(sp.z) < HALF + 30;
@@ -384,7 +397,7 @@ function frame(now) {
   const phoneOpen = !$('phone').classList.contains('hidden');
   const mgOpen = !$('mg').classList.contains('hidden');
   const paused = sheetOpen() || phoneOpen || mgOpen || busy;
-  const shift = (mode === 'mart' && martGame.onShift) || (mode === 'school' && !!schoolGame.duty);
+  const shift = (mode === 'mart' && martGame.onShift) || (mode === 'school' && !!schoolGame.duty) || (mode === 'bldg' && !!jobGame?.onShift);
   const timeFrozen = sheetOpen() || phoneOpen || (!shift && (mgOpen || busy));
   if (!timeFrozen) {
     const actMode = shift ? 'work' : inCar ? 'drive' : player.speed > 3 ? 'run' : player.speed > 0.3 ? 'walk' : 'idle';
@@ -392,7 +405,7 @@ function frame(now) {
     ST.passTime(S, dt * MIN_PER_SEC * (shift ? 2 : 1), actMode);
     needWarnings(before);
   }
-  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); schoolGame.dailyCheck(); if (mode === 'school') schoolGame.refresh(schoolEntrance.school); }
+  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); schoolGame.dailyCheck(); jobGame?.dailyCheck(); realEstate?.dailyCheck(); if (mode === 'school') schoolGame.refresh(schoolEntrance.school); }
   const hours = ST.hour(S);
   if (mode === 'city') {
     const focus = inCar && pcar ? pcar.pos : player.pos;
@@ -472,6 +485,7 @@ function frame(now) {
       if (!paused && !seated) updateRoomWalking(dt);
       else if (seated) { applyLook(readInput()); human.root.position.copy(player.pos); }
       if (!paused) shopGame.update(dt);
+      if (!timeFrozen && jobGame.onShift) jobGame.update(dt);
       bldg.frame(dt, paused);
       if (mode === 'bldg') {
         const pl = room.plan;
@@ -797,7 +811,7 @@ function updateCityInteract() {
   if (S.errand && Math.hypot(p.x - S.errand.to.x, p.z - S.errand.to.z) < 3.5) { setAct(`🙏 ${S.errand.item} 전해주기`, () => missions.finishErrand(), true); return; }
   let best = null, bd = 2.6;
   for (const e of city.entrances) {
-    if (e.id === 'home' && e.homeId !== S.home) continue;
+    if (e.id === 'home' && (e.homeId !== S.home || S.homeUnit)) continue;
     const dd = Math.hypot(p.x - e.x, p.z - e.z);
     if (dd < bd) { bd = dd; best = e; }
   }
@@ -941,7 +955,7 @@ function updateHUD(force) {
   } else if (S.waypoint) {
     html = `📍 ${S.waypoint.name} <span class="dist">${Math.round(Math.hypot(p.x - t.x, p.z - t.z))}m</span>`;
   } else if (mode === 'bldg') {
-    html = bldg.hudText();
+    html = jobGame.onShift ? jobGame.hudText() : bldg.hudText();
   } else if (mode === 'stat') {
     html = statGame.hudText();
   } else if (mode === 'mart') {
@@ -1334,7 +1348,8 @@ function countFurn(id) {
 }
 
 // ───────── 장소: 부동산 ─────────
-function realtySheet() {
+function realtySheet() { realEstate.office('행복 부동산', [{ icon: '🏗️', title: '신축 분양 (푸른숲 아파트 · 레이크타워 펜트하우스)', btn: '보기', fn: () => bunyangSheet() }]); }
+function bunyangSheet() {
   openSheet({
     icon: '🏘️', title: '행복 부동산', sub: '좋은 집, 좋은 인생',
     html: HOMES.map(h => {
@@ -1376,7 +1391,20 @@ function gymSheet() {
 // ───────── 실내 공통 ─────────
 // 실내 공간은 도시 속 실제 건물(사이트) 안에 붙어 있어요.
 // 실내에 있는 동안 player.pos 는 그 건물 기준 좌표예요.
-function homeEntrance() { return city.entrances.find(e => e.id === 'home' && e.homeId === S.home) || city.entrances.find(e => e.id === 'home'); }
+function homeEntrance() {
+  if (S.homeUnit) {
+    const sp = city.bldgs.find(q => q.seed === S.homeUnit.bid);
+    const d = sp && (city.bdoors.find(q => q.spec === sp && q.door?.secure) || city.bdoors.find(q => q.spec === sp && q.lobby) || city.bdoors.find(q => q.spec === sp));
+    if (d) return { id: 'home', x: d.x, z: d.z, nx: d.nx, nz: d.nz, face: Math.atan2(d.nx, d.nz), name: '우리집 · ' + S.homeUnit.name, icon: '🏠', bdoor: d };
+  }
+  return city.entrances.find(e => e.id === 'home' && e.homeId === S.home) || city.entrances.find(e => e.id === 'home');
+}
+// 빈 가게 안내
+function vacantInfo(unit, b) {
+  const B = b.B, area = Math.round((unit.x1 - unit.x0) * (unit.z1 - unit.z0));
+  const pr = shopPrices(b.n, area, B.grade, B.kind);
+  openSheet({ icon: '🏷️', title: '빈 가게 · 임대 문의', sub: `${B.name} ${b.n}층 · ${Math.round(area / 3.3)}평 (${area}㎡)`, html: `<div class="grid2"><div class="stat"><span>보증금</span><b>${won2(pr.deposit)}</b></div><div class="stat"><span>월세</span><b>${won2(pr.rent)}</b></div></div><p class="note">계약은 동네 부동산에서 해요. 이 자리에 내 가게를 열 수 있어요!</p>` });
+}
 function playerWorld() {
   if (site && room) { site.anchor.updateWorldMatrix(true, false); return site.anchor.localToWorld(pwTmp.copy(player.pos)); }
   return pwTmp.copy(player.pos);
@@ -1427,7 +1455,7 @@ function checkWalkIn() {
   }
 }
 let lockedToast = 0;
-let bldg = null, shopGame = null;
+let bldg = null, shopGame = null, jobGame = null, realEstate = null;
 function enterSite(s, kind, r, lx, lz) {
   if (inCar) exitCar();
   s.anchor.updateWorldMatrix(true, false);
@@ -1560,6 +1588,11 @@ async function enterHome(silent) {
   ST.save(S);
 }
 async function exitHome(walk) {
+  if (S.homeUnit) {
+    busy = true; await fade(true); leaveSite();
+    bldg.enterUnit(S.homeUnit);
+    persist(); await fade(false); busy = false; return;
+  }
   if (walk === true && homeSite.kind !== 'tower') { leaveSite(); persist(); return; }
   busy = true;
   await fade(true);
@@ -2200,4 +2233,4 @@ boot().catch(err => { console.error(err); window.__bootFailed = true; window.__b
 
 // 디버그/테스트용
 window.__game = { get missions() { return missions; }, get peds() { return peds; }, get stat() { return stat; }, get statGame() { return statGame; }, enterStat: () => walkInto(city.sites.find(s => s.kind === 'stat')), get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
-  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), get bldg() { return bldg; }, tenantMap: (B) => tenantMapFn(B), get shopGame() { return shopGame; }, get room() { return room; }, eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), get bldg() { return bldg; }, get realEstate() { return realEstate; }, get jobGame() { return jobGame; }, tenantMap: (B) => tenantMapFn(B), get shopGame() { return shopGame; }, get room() { return room; }, eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };

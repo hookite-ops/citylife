@@ -36,6 +36,18 @@ function signAtlas() {
   atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 4;
   return atlasTex;
 }
+// 직접 지은 가게 이름을 간판 칸에 그리기
+export function setCustomSlot(i, name, bg) {
+  const t = signAtlas(), c = t.image, x = c.getContext('2d');
+  const sx = (i % COLS) * SLOT_W, sy = Math.floor(i / COLS) * SLOT_H;
+  x.fillStyle = bg; x.fillRect(sx, sy, SLOT_W, SLOT_H);
+  x.fillStyle = 'rgba(255,255,255,0.25)'; x.fillRect(sx, sy + SLOT_H - 6, SLOT_W, 3);
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  let fs = 38; const ff = (n) => `800 ${n}px "Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif`;
+  x.font = ff(fs); while (x.measureText(name).width > SLOT_W - 24 && fs > 16) { fs -= 2; x.font = ff(fs); }
+  x.fillText(name, sx + SLOT_W / 2, sy + SLOT_H / 2 + 2);
+  t.needsUpdate = true;
+}
 export function slotUV(i) {
   const cx = i % COLS, cy = Math.floor(i / COLS);
   const u0 = cx / COLS, u1 = (cx + 1) / COLS, v1 = 1 - cy / ROWS, v0 = 1 - (cy + 1) / ROWS;
