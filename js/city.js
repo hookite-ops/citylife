@@ -173,7 +173,7 @@ export class City {
       for (const s of blk.specs) {
         if (s.noCollide) continue;
         const gh = (s.type === 'shop' || s.type === 'podium') ? (s.groundH || 4.6) : s.type === 'villa' ? 2.8 : 0;
-        this.colliders.push({ x0: s.x0, z0: s.z0, x1: s.x1, z1: s.z1, h: specH(s) + gh });
+        this.colliders.push({ x0: s.x0, z0: s.z0, x1: s.x1, z1: s.z1, h: specH(s) + gh, spec: s });
       }
     }
   }
@@ -881,6 +881,7 @@ export class City {
   }
   // 가게가 바뀐 건물 다시 그리기 (간판)
   refreshSpec(s) {
+    this.onRefresh?.(s);
     s.B = null;
     const c = s.chunk; if (c?.near) { this.disposeGroup(c.near); c.near = null; this.buildNearChunk(c); }
     // 문 이름도 새로
@@ -1255,7 +1256,23 @@ export class City {
 
   collide(pos, r, opts = {}) {
     let hit = false;
+    // 걸어 들어가는 건물: 통째 상자 대신 1층 실제 벽
+    for (const ob of opts.walker ? this.openBldgs || [] : []) {
+      if (pos.x < ob.s.x0 - 3 || pos.x > ob.s.x1 + 3 || pos.z < ob.s.z0 - 3 || pos.z > ob.s.z1 + 3) continue;
+      for (const c of ob.wcols) {
+        if (c.src.open) continue;
+        if (pos.x + r < c.x0 || pos.x - r > c.x1 || pos.z + r < c.z0 || pos.z - r > c.z1) continue;
+        const nx = Math.max(c.x0, Math.min(pos.x, c.x1)), nz = Math.max(c.z0, Math.min(pos.z, c.z1));
+        const dx = pos.x - nx, dz = pos.z - nz, d = Math.hypot(dx, dz);
+        if (d < r) {
+          hit = true;
+          if (d < 1e-4) { const l = pos.x - c.x0, rr = c.x1 - pos.x, t = pos.z - c.z0, b = c.z1 - pos.z, mn = Math.min(l, rr, t, b); if (mn === l) pos.x = c.x0 - r; else if (mn === rr) pos.x = c.x1 + r; else if (mn === t) pos.z = c.z0 - r; else pos.z = c.z1 + r; }
+          else { pos.x = nx + dx / d * r; pos.z = nz + dz / d * r; }
+        }
+      }
+    }
     for (const c of this.query(pos.x - r, pos.z - r, pos.x + r, pos.z + r)) {
+      if (c.spec?.open && opts.walker) continue;   // 걸어서만 들어갈 수 있어요 (차는 막힘)
       if (pos.x + r < c.x0 || pos.x - r > c.x1 || pos.z + r < c.z0 || pos.z - r > c.z1) continue;
       if (c.median && opts.walker) continue;
       const nx = Math.max(c.x0, Math.min(pos.x, c.x1)), nz = Math.max(c.z0, Math.min(pos.z, c.z1));
@@ -1291,7 +1308,12 @@ export class City {
   }
   // 카메라용: 점이 건물 안인지
   insideBuilding(x, y, z) {
-    for (const c of this.query(x - 0.3, z - 0.3, x + 0.3, z + 0.3)) if (!c.soft && x > c.x0 - 0.3 && x < c.x1 + 0.3 && z > c.z0 - 0.3 && z < c.z1 + 0.3 && y < c.h + 0.5) return true;
+    for (const ob of this.openBldgs || []) {
+      if (x < ob.s.x0 - 0.3 || x > ob.s.x1 + 0.3 || z < ob.s.z0 - 0.3 || z > ob.s.z1 + 0.3) continue;
+      if (y > ob.ceil) return y < specH(ob.s) + 6;
+      for (const c of ob.wcols) if (!c.src.open && x > c.x0 - 0.2 && x < c.x1 + 0.2 && z > c.z0 - 0.2 && z < c.z1 + 0.2) return true;
+    }
+    for (const c of this.query(x - 0.3, z - 0.3, x + 0.3, z + 0.3)) if (!c.soft && !c.spec?.open && x > c.x0 - 0.3 && x < c.x1 + 0.3 && z > c.z0 - 0.3 && z < c.z1 + 0.3 && y < c.h + 0.5) return true;
     return false;
   }
 

@@ -30,19 +30,29 @@ const FLOOR_DRAW = {
   roof: (x, w, h) => { x.fillStyle = '#6a8a7a'; x.fillRect(0, 0, w, h); for (let k = 0; k < 3000; k++) { x.fillStyle = `rgba(0,0,0,${Math.random() * 0.06})`; x.fillRect(Math.random() * w, Math.random() * h, 3, 3); } },
 };
 const FLOOR_SCALE = { tile: 2.4, oldtile: 2.4, stone: 2.4, wood: 2.2, darkwood: 2.2, carpet: 3, redcarpet: 3, concrete: 4, epoxy: 6, mat: 2, rubber: 3, kids: 2.4, roof: 5 };
+// 실내 조명 세기 (밖에서 볼 때 밤에도 가게 안이 환하게) — main이 매 프레임 정해요
+export const IN_LIGHT = { value: 0.12 };
+function selfLit(m, key) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uInLight = IN_LIGHT;
+    sh.fragmentShader = 'uniform float uInLight;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * uInLight;');
+  };
+  m.customProgramCacheKey = () => 'inlit_' + key;
+  return m;
+}
 export function floorMat(kind) {
   const k = 'f_' + kind;
   if (!_mats[k]) {
     const t = cv(256, 256, FLOOR_DRAW[kind] || FLOOR_DRAW.tile);
-    _mats[k] = new THREE.MeshStandardMaterial({ map: t, roughness: kind === 'stone' ? 0.25 : kind === 'epoxy' ? 0.3 : 0.75, metalness: kind === 'stone' ? 0.05 : 0 });
+    _mats[k] = selfLit(new THREE.MeshStandardMaterial({ map: t, roughness: kind === 'stone' ? 0.25 : kind === 'epoxy' ? 0.3 : 0.75, metalness: kind === 'stone' ? 0.05 : 0 }), 'floor');
     _mats[k].userData.scale = FLOOR_SCALE[kind] || 2.4;
   }
   return _mats[k];
 }
 export function sharedMats() {
   if (_mats.vc) return _mats;
-  _mats.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.02 });
-  _mats.metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.75 });
+  _mats.vc = selfLit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.02 }), 'vc');
+  _mats.metal = selfLit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.75 }), 'metal');
   _mats.glass = new THREE.MeshStandardMaterial({ color: 0xc6e2ee, transparent: true, opacity: 0.2, roughness: 0.05, metalness: 0.5, side: THREE.DoubleSide, depthWrite: false });
   _mats.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
   _mats.mirror = new THREE.MeshStandardMaterial({ color: 0xdfe8ee, roughness: 0.02, metalness: 1 });
@@ -53,13 +63,19 @@ export function sharedMats() {
 export class LabelAtlas {
   constructor(size = 2048) {
     this.size = size;
+    this.c = null; this.x = null;   // 글자를 처음 쓸 때 만들어요 (메모리 절약)
+    this.cx = 0; this.cy = 0; this.rowH = 0;
+  }
+  ensure() {
+    if (this.c) return;
+    const size = this.size;
     this.c = document.createElement('canvas'); this.c.width = this.c.height = size;
     this.x = this.c.getContext('2d');
     this.x.fillStyle = '#fff'; this.x.fillRect(0, 0, size, size);
-    this.cx = 0; this.cy = 0; this.rowH = 0;
   }
   // 영역 확보 → draw(ctx, w, h) → UV 반환
   add(w, h, draw) {
+    this.ensure();
     w = Math.min(w, this.size); h = Math.min(h, this.size);
     if (this.cx + w > this.size) { this.cx = 0; this.cy += this.rowH + 2; this.rowH = 0; }
     if (this.cy + h > this.size) { this.cx = 0; this.cy = 0; this.rowH = 0; } // 넘치면 덮어씀
@@ -72,6 +88,7 @@ export class LabelAtlas {
     return [x0 / S, 1 - (y0 + h) / S, (x0 + w) / S, 1 - y0 / S];
   }
   texture() {
+    this.ensure();
     if (!this.tex) { this.tex = new THREE.CanvasTexture(this.c); this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.anisotropy = 4; }
     return this.tex;
   }
@@ -97,11 +114,11 @@ export function drawSign(x, w, h, { text = '', sub = '', bg = '#222', fg = '#fff
 // ───────── 키트 ─────────
 const _c = new THREE.Color();
 export class Kit {
-  constructor() {
+  constructor(atlas = null) {
     this.solid = new GB(); this.metal = new GB(); this.glass = new GB(); this.glow = new GB(); this.label = new GB();
     this.floors = {};    // kind → GB (텍스처 바닥)
     this.colliders = []; // {x0,z0,x1,z1}
-    this.atlas = new LabelAtlas();
+    this.atlas = atlas || new LabelAtlas();
     this.extra = [];     // 따로 만든 메시
   }
   col(gb, c) { if (Array.isArray(c)) gb.setRGB(c[0], c[1], c[2]); else gb.setColor(c); return gb; }

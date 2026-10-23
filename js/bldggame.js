@@ -35,7 +35,8 @@ export class BldgGame {
     this.c = ctx;   // { S, city, scene, player, human, audio, enterSite, leaveSite, setRoom, setBusy, persist, passTime, shop(): ShopGame }
     this.B = null; this.view = null; this.lifts = null; this.n = 1;
     this.riding = null; this.npcs = []; this.gateOpen = 0; this.npcT = 5;
-    this.anchor = new THREE.Group();
+    this.anchor = this.baseAnchor = new THREE.Group();
+    this.ob = null;   // 걸어 들어온 건물 (walkin)
   }
   get S() { return this.c.S; }
   get active() { return !!this.B; }
@@ -151,25 +152,46 @@ export class BldgGame {
     this.c.audio.play?.('door');
     if (!this.S.bldgTip) { this.S.bldgTip = true; setTimeout(() => toast('🏢 엘리베이터 앞에서 부르고, 안에서 층을 골라요 · 계단은 초록 비상구 표시'), 800); }
   }
+  // ─ 걸어서 들어오기: 이미 지어 둔 1층을 그대로 써요 (화면 전환 없음) ─
+  adopt(ob, lx, lz) {
+    const B = ob.B;
+    this.ob = ob; this.B = B; this.lifts = ob.lifts; this.view = ob.view; this.n = 1; this.curUnit = null;
+    this.anchor = ob.anchor;
+    // 저장용 출입문: 가장 가까운 문
+    const [wx, wz] = toWorldPt(B, lx, lz);
+    let best = null, bd = 1e9;
+    for (const d of this.c.city.bdoors) if (d.spec === B.spec) { const dd = Math.hypot(d.x - wx, d.z - wz); if (dd < bd) { bd = dd; best = d; } }
+    this.entryDoor = best;
+    const site = this.site || (this.site = { kind: 'bldg', inside: true });
+    Object.assign(site, { anchor: this.anchor, rot: B.rot, x: B.cx, z: B.cz, W: B.L, D: B.D, toLocal: (a, b) => toLocalPt(B, a, b), toWorld: (a, b) => toWorldPt(B, a, b) });
+    this.c.enterSite(site, this.view, lx, lz, undefined, true);
+    this.spawnNpcs();
+    this.c.updateHUD?.(true);
+    if (!this.S.walkTip) { this.S.walkTip = true; setTimeout(() => toast('🚪 가게·건물은 문으로 걸어서 들어가고 나와요'), 600); }
+  }
   // 층 만들기 (place: 로컬 위치)
   setupFloor(n, place, first = false) {
     const B = this.B;
-    if (this.view) { this.clearNpcs(); this.view.dispose(); this.c.shop?.()?.onExitBuilding?.(); }
+    if (this.view) { this.clearNpcs(); this.view.dispose(); this.c.shop?.()?.onExitBuilding?.(); if (this.ob && this.ob.view === this.view) this.ob.view = null; }
     this.n = n; this.curUnit = null;
     const f = B.floorOf(n);
-    const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit, company: this.c.company });
+    const walk1 = this.ob && n === 1;
+    const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit, company: this.c.company, ...(walk1 ? { lazyAll: true, skin: B.spec.color || [0.8, 0.8, 0.78] } : {}) });
     this.view = view;
+    if (walk1) { this.ob.view = view; this.ob.ncol = -1; this.ob.blockers = []; this.c.walkin?.()?.addBlockers(this.ob); }
     // 아래층 덩어리 (창밖으로 내려다볼 때)
     const base = B.kind === 'tower' && n >= 4 ? B.spec.y0 : B.spec.y0;
     const hBelow = f.y - base;
-    if (hBelow > 1.5 && !f.parking) {
+    if (hBelow > 1.5 && !f.parking && !walk1) {
       const col = B.spec.color || [0.75, 0.75, 0.74];
       const stub = new THREE.Mesh(new THREE.BoxGeometry(B.L - 0.6, hBelow - 0.35, B.D - 0.6), new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(col[0], col[1], col[2], THREE.SRGBColorSpace), roughness: 0.8 }));
       stub.position.set(0, -(hBelow - 0.35) / 2 - 0.35, 0); view.root.add(stub);
     }
     // 바닥 슬래브 (아래가 비어 보이지 않게)
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(B.L + 0.4, 0.3, B.D + 0.4), new THREE.MeshStandardMaterial({ color: 0x9a9a96, roughness: 0.9 }));
-    slab.position.set(0, -0.16, 0); view.root.add(slab);
+    if (!walk1) {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(B.L + 0.4, 0.3, B.D + 0.4), new THREE.MeshStandardMaterial({ color: 0x9a9a96, roughness: 0.9 }));
+      slab.position.set(0, -0.16, 0); view.root.add(slab);
+    }
     this.anchor.position.set(B.cx, f.y + 0.03, B.cz);
     this.anchor.rotation.y = B.rot;
     this.anchor.add(view.root);
@@ -177,7 +199,7 @@ export class BldgGame {
     // 건물 겉모습 숨기기
     const hide = B.kind === 'tower' ? (n === 1 || f.parking ? [B.spec.podium] : [B.spec]) : [B.spec];
     if (B.kind === 'mall' && B.spec.towers && (n < 0)) hide.push(...B.spec.towers.filter(t => !t.site));
-    this.c.city.setHidden(hide.filter(Boolean));
+    this.c.city.setHidden(walk1 ? [] : hide.filter(Boolean));
     const site = this.site || (this.site = { kind: 'bldg', anchor: this.anchor, inside: true });
     Object.assign(site, { rot: B.rot, x: B.cx, z: B.cz, W: B.L, D: B.D, toLocal: (wx, wz) => toLocalPt(B, wx, wz), toWorld: (lx, lz) => toWorldPt(B, lx, lz) });
     if (first) this.c.enterSite(site, view, place.x, place.z, place.heading);
@@ -188,6 +210,7 @@ export class BldgGame {
   // ─ 나가기 ─
   exit(door) {
     const p = this.c.player;
+    const seamless = this.ob && this.n === 1 && !door;
     if (door) {
       const nx = door.ax === 'x' ? 0 : Math.sign(door.x), nz = door.ax === 'x' ? Math.sign(door.z) : 0;
       p.pos.set(door.x + nx * 1.6, 0, door.z + nz * 1.6);
@@ -198,8 +221,16 @@ export class BldgGame {
     this.c.shop?.()?.onExitBuilding?.();
     if (this.c.shop?.()?.c.jobs?.onShift) this.c.shop().c.jobs.clockOut(true);
     const cr = this.c.career?.(); if (cr?.working && this.S.career && ST.hour(this.S) % 24 < this.S.career.end) { toast('🏃 일하다 말고 나왔어요… (조퇴 처리)', 'bad'); this.S.career.perf -= 1; cr.clockOut(); } else if (cr?.working) cr.clockOut();
-    this.c.leaveSite();
+    this.c.leaveSite(seamless);
     this.c.city.setHidden([]);
+    if (this.ob) {
+      // 걸어 나가면 1층은 그대로 남겨요 (다시 보이게)
+      const ob = this.ob; this.ob = null;
+      if (seamless) this.c.walkin?.()?.release(this.B, this.view);
+      else { if (this.view && this.view !== ob.view) this.view.dispose(); this.c.walkin?.()?.release(this.B, null); }
+      this.view = null; this.anchor = this.baseAnchor; this.B = null;
+      return;
+    }
     if (this.view) { this.view.dispose(); this.view = null; }
     this.anchor.parent?.remove(this.anchor);
     this.B = null;
@@ -210,7 +241,10 @@ export class BldgGame {
   frame(dt, paused) {
     if (!this.B) return;
     const v = this.view, P = this.c.player.pos;
-    v.buildPending?.(P.x, P.z, v.pending?.length > 6 ? 2 : 1);
+    const added = v.buildPending?.(P.x, P.z, v.pending?.length > 6 ? 2 : 1);
+    if (added?.length) this.spawnNpcs(added);
+    // 걸어 들어온 건물: 1층 밖으로 걸어 나가면 바로 도시
+    if (this.ob && this.n === 1 && !paused && (Math.abs(P.x) > this.B.L / 2 + 0.2 || Math.abs(P.z) > this.B.D / 2 + 0.2)) { this.exit(null); return; }
     this.lifts.update(dt);
     v.updateLifts(dt, this.riding);
     // 엘리베이터 문 = 움직이는 콜라이더
@@ -238,7 +272,7 @@ export class BldgGame {
     if (this.gateOpen > 0) { this.gateOpen -= dt; if (this.gateOpen <= 0) for (const g of v.colliders) if (g.gate) g.open = false; }
     // 나가는 문으로 걸어가면 밖으로
     const z = v.zoneAt(P);
-    if (z?.kind === 'exit' && !paused) {
+    if (z?.kind === 'exit' && !paused && !this.ob) {
       const d = z.door;
       const out = d.ax === 'x' ? Math.sign(d.z) * (P.z - d.z) : Math.sign(d.x) * (P.x - d.x);
       if (out > -0.25 && this.c.player.speed > 0.3) { this.exit(d); return; }
@@ -268,7 +302,7 @@ export class BldgGame {
     if (z.unit && shop) { const a = shop.action(z, this); if (a) return a; }
     const S = this.S, B = this.B;
     switch (z.kind) {
-      case 'exit': return { label: '🚪 밖으로 나가기', fn: () => this.exit(z.door) };
+      case 'exit': return this.ob ? null : { label: '🚪 밖으로 나가기', fn: () => this.exit(z.door) };
       case 'elevcall': {
         const bk = B.banks.find(b => b.id === z.bank);
         if (!bk.serves.includes(this.n)) return { label: '🛗 이 층에는 서지 않아요', fn: () => toast(`${bk.name} 엘리베이터는 이 층에 서지 않아요`) };
@@ -435,7 +469,7 @@ export class BldgGame {
 
   // ─ NPC ─
   clearNpcs() { for (const n of this.npcs) { n.p.root.parent?.remove(n.p.root); if (n.icon) n.icon.parent?.remove(n.icon); } this.npcs = []; }
-  spawnNpcs() {
+  spawnNpcs(spots) {
     const v = this.view, root = v.root;
     const h = this.hour(), wd = this.wd();
     const add = (look, x, z, rot, data = {}) => {
@@ -447,7 +481,7 @@ export class BldgGame {
       if (data.sit) p.sit?.();
       this.npcs.push(n); return n;
     };
-    for (const s of v.npcSpots) {
+    for (const s of spots || v.npcSpots) {
       const t = s.room?.tenant;
       if (s.kind === 'guard') { add({ shirt: 0x34495e, pants: 0x2c3e50, hair: 0x888888 }, s.x, s.z, s.rot, { role: 'guard' }); continue; }
       if (t && !t.vacant) {

@@ -54,6 +54,33 @@ export function slotUV(i) {
   return [u0, v0, u1, v1];
 }
 
+// ───────── 걸어 들어가는 건물: 1층 안쪽을 잘라내는 상자 (셰이더에서 버림) ─────────
+// A: 1층 바깥 껍데기(유리·창틀·가짜 매장) 높이까지 · B: 안쪽(LOD 상자 · 가짜 실내)을 1층 천장까지
+export const CUT_MAX = 6;
+export const CUT = {
+  n: { value: 0 },
+  a0: { value: Array.from({ length: CUT_MAX }, () => new THREE.Vector3()) }, a1: { value: Array.from({ length: CUT_MAX }, () => new THREE.Vector3()) },
+  b0: { value: Array.from({ length: CUT_MAX }, () => new THREE.Vector3()) }, b1: { value: Array.from({ length: CUT_MAX }, () => new THREE.Vector3()) },
+};
+export function setCuts(list) {
+  const n = Math.min(CUT_MAX, list.length);
+  for (let i = 0; i < n; i++) { const c = list[i]; CUT.a0.value[i].copy(c.a0); CUT.a1.value[i].copy(c.a1); CUT.b0.value[i].copy(c.b0); CUT.b1.value[i].copy(c.b1); }
+  CUT.n.value = n;
+}
+function addCut(m, key, extra) {
+  m.onBeforeCompile = (sh) => {
+    extra?.(sh);
+    sh.uniforms.uCutN = CUT.n; sh.uniforms.uCutA0 = CUT.a0; sh.uniforms.uCutA1 = CUT.a1; sh.uniforms.uCutB0 = CUT.b0; sh.uniforms.uCutB1 = CUT.b1;
+    sh.vertexShader = 'varying vec3 vCutWP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n\tvCutWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = `varying vec3 vCutWP;\nuniform int uCutN;\nuniform vec3 uCutA0[${CUT_MAX}];\nuniform vec3 uCutA1[${CUT_MAX}];\nuniform vec3 uCutB0[${CUT_MAX}];\nuniform vec3 uCutB1[${CUT_MAX}];\n` +
+      sh.fragmentShader.replace('#include <clipping_planes_fragment>', `for (int ci = 0; ci < ${CUT_MAX}; ci++) { if (ci >= uCutN) break;
+        if (all(greaterThan(vCutWP, uCutA0[ci])) && all(lessThan(vCutWP, uCutA1[ci]))) discard;
+        if (all(greaterThan(vCutWP, uCutB0[ci])) && all(lessThan(vCutWP, uCutB1[ci]))) discard; }
+      #include <clipping_planes_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'cut_' + key;
+}
+
 export function makeMaterials() {
   const solid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.02 });
   const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.7 });
@@ -67,6 +94,9 @@ export function makeMaterials() {
   shopLit.color.set(0xd8d8d8); shopLit.emissiveIntensity = 0.35;
   const t = signAtlas();
   const sign = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.25, roughness: 0.5 });
+  const litFix = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;'); };
+  addCut(solid, 'solid'); addCut(metal, 'metal'); addCut(glass, 'glass'); addCut(room, 'room'); addCut(sign, 'sign');
+  addCut(lit, 'lit', litFix); addCut(shopLit, 'shopLit', litFix);
   return { solid, metal, glass, room, lit, shopLit, sign };
 }
 

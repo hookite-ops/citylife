@@ -44,7 +44,7 @@ export class FloorView {
     this.pending = [];
     for (const r of p.rooms) {
       if (r.kind !== 'unit') continue;
-      if (!r.home && shopN > 6) { this.pending.push({ r, d: p.doors.find(q => q.unit === r) }); continue; }
+      if (!r.home && (shopN > 6 || this.opts.lazyAll)) { this.pending.push({ r, d: p.doors.find(q => q.unit === r) }); continue; }
       const d = p.doors.find(q => q.unit === r);
       if (r.home) {
         const vacant = homeVacant(this.B, this.n, r.k) && !this.isMine(r);
@@ -65,19 +65,25 @@ export class FloorView {
 
   // 남은 가게 내부를 가까운 것부터 프레임마다 하나씩
   buildPending(px, pz, budget = 1) {
-    const L = this.pending; if (!L || !L.length) return;
+    const L = this.pending; if (!L || !L.length) return null;
+    const added = [];
     const dist = (o) => Math.hypot((o.r.x0 + o.r.x1) / 2 - px, (o.r.z0 + o.r.z1) / 2 - pz);
     L.sort((a, b) => dist(a) - dist(b));
     for (let i = 0; i < budget && L.length; i++) {
       const { r, d } = L.shift();
-      const k = new Kit();
+      const k = new Kit(this.kit.atlas);   // 글자판은 층 하나에 한 장 (같이 써요)
       const out = buildUnit(k, r, r.tenant, d, { plan: this.plan, B: this.B, n: this.n });
       for (const z of out?.zones || []) this.zones.push(z);
-      if (out?.spots) this.npcSpots.push(...out.spots.map(s => ({ ...s, room: r })));
+      if (out?.spots) { const sp = out.spots.map(s => ({ ...s, room: r })); this.npcSpots.push(...sp); added.push(...sp); }
       r.view = out;
       for (const m of k.meshes()) this.root.add(m);
       this.colliders.push(...k.colliders);
+      this.atlasDirty = true;
     }
+    // 글자판 다시 올리기는 가끔만 (모두 지었거나 0.4초마다)
+    const now = performance.now();
+    if (this.atlasDirty && (!L.length || now - (this.atlasT || 0) > 400)) { this.atlasDirty = false; this.atlasT = now; if (this.kit.atlas.tex) this.kit.atlas.tex.needsUpdate = true; }
+    return added;
   }
   lights(k, r, ch) {
     const w = r.x1 - r.x0, d = r.z1 - r.z0;
@@ -200,6 +206,12 @@ export class FloorView {
           else k.box(L.c + sg * T / 2, 0, s.a + a, L.c + sg * (T / 2 + 0.015), 0.09, s.a + b, bb);
         }
       }
+    }
+    // 바깥 껍데기 (걸어 들어가는 건물: 밖에서 보이는 1층 외벽 색)
+    if (ext && this.opts.skin && !(room.open && room.kind === 'pilotis')) {
+      const so = (P ? -1 : 1) * 0.014;
+      const [sx, sz] = L.ax === 'x' ? [0, so] : [so, 0];
+      k.wall(x0 + sx, z0 + sz, x1 + sx, z1 + sz, h, this.opts.skin, { t: 0.026, holes: holes.map(o => ({ ...o, glass: false })), collide: false });
     }
     if (railing) { if (L.ax === 'x') k.box(s.a, 1.0, L.c - 0.04, s.b, 1.06, L.c + 0.04, [0.3, 0.32, 0.35], k.metal); else k.box(L.c - 0.04, 1.0, s.a, L.c + 0.04, 1.06, s.b, [0.3, 0.32, 0.35], k.metal); }
     // 콜라이더 (문 구멍 빼고, 두께 전체)
