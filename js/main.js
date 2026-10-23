@@ -26,6 +26,7 @@ import { Economy } from './economy.js';
 import { Pets } from './pets.js';
 import { PhoneCamera } from './camera.js';
 import { Achieve } from './achieve.js';
+import { cloud } from './cloud.js';
 import { OUTFITS, OUTFIT_CATS, SKIN_TONES, ensureLook, wear, swatch } from './outfits.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 import { runMeal, pickMealSheet } from './meal.js';
@@ -138,7 +139,7 @@ async function boot() {
   for (const sp of career.setupStations()) city.refreshSpec(sp);
   progress(0.82, '차와 사람들을 불러오는 중'); await nextFrame();
   traffic = new Traffic(scene, city, QUAL[quality].traffic);
-  city.setNearRadius(QUAL[quality].near);
+  applyView();
   peds = new Peds(scene, QUAL[quality].peds, (i, j) => ZONES[j][i] === 'L');
   // 주차된 차들
   const pc = [0xf2f2ee, 0x1a1c20, 0x8c9096, 0x2b3a55, 0x6b1a1a, 0xc8c2b0, 0x24303c];
@@ -242,18 +243,21 @@ async function boot() {
   requestAnimationFrame(loop);
 }
 
+const VIEW = { near: 0.7, mid: 1, far: 1.35 };
+let perfNoShadow = false, perfView = 1;
 function applyShadowQuality() {
   const q = QUAL[quality];
   sky.setShadowQuality(q.shadow, q.range);
-  sky.sun.castShadow = q.shadows;
+  sky.sun.castShadow = (S.settings.shadows ?? q.shadows) && !perfNoShadow;
 }
+function applyView() { city?.setNearRadius(QUAL[quality].near * (VIEW[S.settings.view] || 1) * perfView); }
 function setQuality(q) {
   quality = q; S.settings.quality = q;
   dynScale = 1;
   renderer.setPixelRatio(QUAL[q].pr);
   applyShadowQuality();
   traffic?.setCount(QUAL[q].traffic);
-  city?.setNearRadius(QUAL[q].near);
+  perfNoShadow = false; perfView = 1; applyShadowQuality(); applyView();
   peds?.setCount(QUAL[q].peds);
   setQualityButtons();
 }
@@ -263,9 +267,17 @@ function autoPerf(dt) {
   if (perfT < 3) return;
   const fps = perfFrames / perfT; perfT = 0; perfFrames = 0;
   const prev = dynScale;
+  window.__fps = Math.round(fps);
+  if ($('fpsMeter')) $('fpsMeter').textContent = `${Math.round(fps)} FPS · ${Math.round(dynScale * 100)}%`;
+  if (S.settings.auto === false) return;
   if (fps < 24 && dynScale > 0.55) dynScale = Math.max(0.55, dynScale - 0.1);
   else if (fps > 52 && dynScale < 1) dynScale = Math.min(1, dynScale + 0.05);
   if (dynScale !== prev) renderer.setPixelRatio(QUAL[quality].pr * dynScale);
+  // 해상도를 다 낮춰도 느리면: 그림자 끄기 → 시야 줄이기
+  if (fps < 20 && dynScale <= 0.55) {
+    if (!perfNoShadow && sky.sun.castShadow) { perfNoShadow = true; applyShadowQuality(); toast('⚙️ 부드럽게 하려고 그림자를 껐어요 (설정에서 바꿀 수 있어요)', '', 3600); }
+    else if (perfView > 0.75) { perfView = 0.75; applyView(); }
+  }
   if (fps < 18 && dynScale <= 0.55 && quality !== 'low' && !perfWarned) { perfWarned = true; toast('🐢 화면이 느려요. ☰ 메뉴 → 설정에서 그래픽을 \'절약\'으로 바꾸면 더 부드러워요', '', 6000); }
   window.__fps = Math.round(fps);
 }
@@ -294,6 +306,7 @@ async function startGame(fresh) {
   ensureWallet(S);
   realEstate.restore();
   life.start();
+  applyShadowQuality(); applyView(); fpsMeter();
   const home = homeEntrance();
   const sp = S.player;
   const valid = sp && Number.isFinite(sp.x) && Number.isFinite(sp.z) && Math.abs(sp.x) < HALF + 30 && Math.abs(sp.z) < HALF + 30;
@@ -459,6 +472,7 @@ function frame(now) {
     roomAmb.intensity = 0; roomLight.intensity = 0;
     audio.ambient(sky.night > 0.5, false);
     audio.engine(inCar && !paused, pcar ? pcar.speed : 0, inCar ? lastThrottle : 0, pcar ? pcar.spec.maxSpeed : 30);
+    audio.loop('step', !paused && !inCar && !transit?.riding && player.ground && player.speed > 0.6 ? Math.min(0.3, player.speed * 0.06) : 0, 0.75 + player.speed * 0.09);
     miniT -= dt; if (miniT <= 0) { miniT = 0.1; drawMinimap(); }
     renderer.render(scene, camera);
   } else {
@@ -467,6 +481,7 @@ function frame(now) {
     sky.update(hours, pwv, dt);
     weather.update(dt, S.minutes, camera.position, true);
     audio.loop?.('rain', weather.kind === 'snow' ? 0 : weather.amt * 0.25);
+    audio.loop('step', !paused && player.speed > 0.6 ? Math.min(0.2, player.speed * 0.05) : 0, 0.8 + player.speed * 0.1);
     life.update(dt, timeFrozen, true); transit.update(dt);
     autoPerf(dt);
     renderer.toneMappingExposure = 1 + sky.night * 0.25;
@@ -552,6 +567,68 @@ function persist() {
   else S.player = { x: (inCar && pcar ? pcar.pos.x : player.pos.x), z: (inCar && pcar ? pcar.pos.z : player.pos.z), h: player.heading, inCar };
   if (pcar) S.carPos = { x: pcar.pos.x, z: pcar.pos.z, h: pcar.heading };
   if (!ST.save(S) && !saveWarned) { saveWarned = true; toast('⚠️ 이 브라우저에서는 저장이 안 돼요 (사생활 보호 모드인지 확인해 주세요)', 'bad', 5000); }
+  if (cloud.user && Date.now() - cloud.lastUp > 120000 && mode !== 'title') cloud.upload(S).catch(() => {});
+}
+// ───────── 구글 로그인 클라우드 저장 ─────────
+document.addEventListener('visibilitychange', () => { if (document.hidden && cloud.user && mode !== 'title') { persist(); cloud.upload(S).catch(() => {}); } });
+let cloudAsked = false;
+cloud.onChange(async (u) => {
+  if (!u || cloudAsked || mode === 'title') return;
+  cloudAsked = true;
+  try {
+    const cs = await cloud.download();
+    if (cs && cs.S.minutes > S.minutes + 60) cloudLoadSheet(cs);
+    else { await cloud.upload(S); toast('☁️ 클라우드 저장이 켜졌어요 · 2분마다 자동으로 올라가요', 'good', 3600); }
+  } catch (e) { toast('☁️ 클라우드에 연결하지 못했어요', 'bad'); }
+});
+function cloudLoadSheet(cs) {
+  openSheet({
+    icon: '☁️', title: '클라우드 저장 불러오기', sub: `${cs.day}일차 · 💳 ${won(cs.money)}${cs.at ? ` · ${cs.at.toLocaleString('ko-KR')}` : ''}`,
+    html: `<p class="note">지금 이 기기의 진행: ${ST.day(S)}일차 · 💳 ${won(S.money)}<br>불러오면 이 기기의 진행은 클라우드 내용으로 바뀌어요.</p>
+      <button class="btn wide green" data-act="load">⬇️ 클라우드 진행 불러오기</button><button class="btn wide gray" data-act="keep">이 기기 진행 유지 (클라우드에 덮어쓰기)</button>`,
+    bind: (b) => bindActs(b, {
+      load: () => { ST.save(cs.S); toast('☁️ 불러오는 중…'); setTimeout(() => location.reload(), 400); },
+      keep: async () => { closeSheet(); persist(); await cloud.upload(S).catch(() => {}); toast('☁️ 이 기기 진행을 클라우드에 저장했어요', 'good'); },
+    }),
+  });
+}
+async function cloudSheet() {
+  if (!cloud.available) {
+    openSheet({ icon: '☁️', title: '클라우드 저장', sub: '구글 계정으로 여러 기기에서 이어하기', html: `<p class="note">아직 준비 중이에요. 운영자가 구글 로그인(Firebase) 설정을 넣으면 바로 켜져요.<br>지금은 이 기기의 브라우저에 20초마다 자동 저장돼요.</p><button class="btn wide gray" data-act="ok">닫기</button>`, bind: (b) => bindActs(b, { ok: () => closeSheet() }) });
+    return;
+  }
+  const ok = await cloud.init();
+  if (!ok) { toast('☁️ 클라우드를 불러오지 못했어요 · 인터넷 연결을 확인해 주세요', 'bad'); return; }
+  const u = cloud.user;
+  openSheet({
+    icon: '☁️', title: '클라우드 저장', sub: u ? `${u.displayName || ''} · ${u.email || ''}` : '구글 계정으로 로그인하면 다른 기기에서도 이어할 수 있어요',
+    html: u ? `<p class="note">${cloud.lastUp ? `마지막 업로드: ${Math.round((Date.now() - cloud.lastUp) / 60000)}분 전` : '아직 올리지 않았어요'} · 2분마다 자동 업로드</p>
+        <button class="btn wide green" data-act="up">⬆️ 지금 클라우드에 저장</button><button class="btn wide" data-act="down">⬇️ 클라우드에서 불러오기</button><button class="btn wide gray" data-act="out">로그아웃</button>`
+      : `<button class="btn wide green" data-act="in">🔐 구글로 로그인</button>`,
+    bind: (b) => bindActs(b, {
+      in: async () => { closeSheet(); try { await cloud.signIn(); } catch (e) { toast('🔐 로그인하지 못했어요', 'bad'); } },
+      up: async () => { persist(); try { await cloud.upload(S); toast('☁️ 클라우드에 저장했어요', 'good'); } catch (e) { toast('☁️ 저장하지 못했어요', 'bad'); } cloudSheet(); },
+      down: async () => { try { const cs = await cloud.download(); if (!cs) { toast('☁️ 클라우드에 저장된 진행이 없어요'); return; } cloudLoadSheet(cs); } catch (e) { toast('☁️ 불러오지 못했어요', 'bad'); } },
+      out: async () => { closeSheet(); await cloud.signOut(); cloudAsked = false; toast('👋 로그아웃했어요 · 이 기기에는 계속 저장돼요'); },
+    }),
+  });
+}
+// 타이틀: 클라우드에서 이어하기
+if (cloud.available) {
+  const tb = $('tBtns'), btn = document.createElement('button');
+  btn.textContent = '☁️ 구글 계정에서 불러오기'; btn.className = 'primary';
+  tb.insertBefore(btn, tb.querySelector('.q-row'));
+  btn.addEventListener('click', async () => {
+    try {
+      await cloud.init();
+      if (!cloud.user) await cloud.signIn();
+      const cs = await cloud.download();
+      if (!cs) { $('loadTxt').textContent = '☁️ 클라우드에 저장된 진행이 없어요 · 새로 시작해 보세요'; return; }
+      $('loadTxt').textContent = `☁️ ${cs.day}일차 진행을 불러오는 중…`;
+      ST.save(cs.S); location.reload();
+    } catch (e) { $('loadTxt').textContent = '☁️ 불러오지 못했어요 · 인터넷 연결을 확인해 주세요'; }
+  });
+  cloud.init();
 }
 let saveWarned = false;
 
@@ -567,6 +644,7 @@ function openMenu() {
       <button class="btn wide" data-act="missions">🎯 오늘의 미션</button>
       <button class="btn wide gray" data-act="settings">⚙️ 설정 (그래픽 · 소리)</button>
       <button class="btn wide gray" data-act="save">💾 지금 저장</button>
+      <button class="btn wide gray" data-act="cloud">☁️ 클라우드 저장 (구글 로그인)</button>
       <p class="note">${ago === null ? '아직 저장 전이에요' : `마지막 저장: ${ago < 60 ? ago + '초' : Math.round(ago / 60) + '분'} 전`} · 20초마다 자동 저장돼요 (이 기기의 브라우저에 저장)</p>`,
     bind: (b) => bindActs(b, {
       resume: () => closeSheet(),
@@ -574,6 +652,7 @@ function openMenu() {
       missions: () => { closeSheet(); openPhone(); phoneApp('missions'); },
       settings: () => { closeSheet(); openPhone(); phoneApp('settings'); },
       save: () => { persist(); toast('💾 저장했어요', 'good'); openMenu(); },
+      cloud: () => { closeSheet(); cloudSheet(); },
     }),
   });
 }
@@ -2148,12 +2227,25 @@ function phoneApp(id) {
     phScreen.innerHTML = `<div class="ph-title">⚙️ 설정</div>
       <div class="note" style="color:#ddd">그래픽 품질</div><div class="tabs">${['low', 'mid', 'high'].map(q => `<button data-q="${q}" class="${q === quality ? 'on' : ''}">${{ low: '절약', mid: '보통', high: '고화질' }[q]}</button>`).join('')}</div>
       <div class="note" style="color:#ddd">소리</div><div class="tabs"><button id="sndOn" class="${S.settings.sound ? 'on' : ''}">켜기</button><button id="sndOff" class="${!S.settings.sound ? 'on' : ''}">끄기</button></div>
+      <div class="note" style="color:#ddd">자동 성능 조절 (느리면 해상도·그림자를 알아서 낮춰요)</div><div class="tabs"><button id="autoOn" class="${S.settings.auto !== false ? 'on' : ''}">켜기</button><button id="autoOff" class="${S.settings.auto === false ? 'on' : ''}">끄기</button></div>
+      <div class="note" style="color:#ddd">그림자</div><div class="tabs"><button id="shOn" class="${(S.settings.shadows ?? QUAL[quality].shadows) ? 'on' : ''}">켜기</button><button id="shOff" class="${!(S.settings.shadows ?? QUAL[quality].shadows) ? 'on' : ''}">끄기</button></div>
+      <div class="note" style="color:#ddd">시야 거리</div><div class="tabs">${Object.keys(VIEW).map(v => `<button data-view="${v}" class="${(S.settings.view || 'mid') === v ? 'on' : ''}">${{ near: '가까이', mid: '보통', far: '멀리' }[v]}</button>`).join('')}</div>
+      <div class="note" style="color:#ddd">프레임 표시</div><div class="tabs"><button id="fpsOn" class="${S.settings.fps ? 'on' : ''}">켜기</button><button id="fpsOff" class="${!S.settings.fps ? 'on' : ''}">끄기</button></div>
       <button class="btn wide" id="saveNow">💾 지금 저장</button>
+      <button class="btn wide gray" id="cloudBtn">☁️ 클라우드 저장 (구글 로그인)</button>
       <button class="btn wide red" id="resetAll" style="margin-top:18px">처음부터 다시 하기</button>`;
     phScreen.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { setQuality(b.dataset.q); phoneApp('settings'); }));
     $('sndOn').addEventListener('click', () => { S.settings.sound = true; audio.setEnabled(true); phoneApp('settings'); });
     $('sndOff').addEventListener('click', () => { S.settings.sound = false; audio.setEnabled(false); phoneApp('settings'); });
     $('saveNow').addEventListener('click', () => { persist(); toast('💾 저장했어요', 'good'); });
+    $('cloudBtn').addEventListener('click', () => { closePhone(); cloudSheet(); });
+    $('autoOn').addEventListener('click', () => { S.settings.auto = true; phoneApp('settings'); });
+    $('autoOff').addEventListener('click', () => { S.settings.auto = false; dynScale = 1; renderer.setPixelRatio(QUAL[quality].pr); perfNoShadow = false; perfView = 1; applyShadowQuality(); applyView(); phoneApp('settings'); });
+    $('shOn').addEventListener('click', () => { S.settings.shadows = true; perfNoShadow = false; applyShadowQuality(); phoneApp('settings'); });
+    $('shOff').addEventListener('click', () => { S.settings.shadows = false; applyShadowQuality(); phoneApp('settings'); });
+    phScreen.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => { S.settings.view = b.dataset.view; applyView(); phoneApp('settings'); }));
+    $('fpsOn').addEventListener('click', () => { S.settings.fps = true; fpsMeter(); phoneApp('settings'); });
+    $('fpsOff').addEventListener('click', () => { S.settings.fps = false; fpsMeter(); phoneApp('settings'); });
     $('resetAll').addEventListener('click', () => { if (confirm('정말 모든 진행을 지울까요?')) { ST.wipe(); location.reload(); } });
   }
 }
@@ -2235,6 +2327,11 @@ async function taxi(e) {
   } }, () => { paid = true; });
   if (S.waypoint && S.waypoint.name === e.name) S.waypoint = null;
   S.rides = (S.rides || 0) + 1;
+}
+function fpsMeter() {
+  let el = $('fpsMeter');
+  if (S.settings.fps && !el) { el = document.createElement('div'); el.id = 'fpsMeter'; el.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:19;background:rgba(0,0,0,.55);color:#9effa8;font:600 12px monospace;padding:3px 8px;border-radius:8px;pointer-events:none'; el.textContent = '… FPS'; document.body.appendChild(el); }
+  if (!S.settings.fps && el) el.remove();
 }
 // 총 자산 (현금 + 예금 + 주식 + 부동산)
 function totalAssets() {

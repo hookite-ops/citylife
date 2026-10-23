@@ -210,6 +210,7 @@ export class BldgGame {
   frame(dt, paused) {
     if (!this.B) return;
     const v = this.view, P = this.c.player.pos;
+    v.buildPending?.(P.x, P.z, v.pending?.length > 6 ? 2 : 1);
     this.lifts.update(dt);
     v.updateLifts(dt, this.riding);
     // 엘리베이터 문 = 움직이는 콜라이더

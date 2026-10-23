@@ -7,7 +7,7 @@ export const SOUND_SLOTS = {
   restock: '진열', mop: '걸레질', spill: '음료 쏟음', truck: '물류 트럭',
   pour: '물 붓기', microwave: '전자레인지 (돌아감)', ding: '전자레인지 땡', kettle: '전기포트',
   water: '수돗물', gas_on: '가스불 켜기', gas_off: '가스불 끄기', boil: '물 끓음', sizzle: '지글지글', plop: '재료 넣기', stir: '휘젓기',
-  alarm: '알람', snore: '잠자기', light: '전등 스위치',
+  alarm: '알람', snore: '잠자기', light: '전등 스위치', jump: '점프', land: '착지', step: '발소리 (반복)', skid: '타이어 미끄러짐', toggle: '토글', open: '열기', close: '닫기', rain: '빗소리 (반복)',
 };
 
 export class Audio {
@@ -49,6 +49,8 @@ export class Audio {
       const b = this.buf[name];
       if (!b) { this.load(name); return; }
       const s = this.ctx.createBufferSource(); s.buffer = b; s.loop = true;
+      // mp3 앞뒤 무음 때문에 끊기지 않게 반복 구간을 살짝 안쪽으로
+      if (b.duration > 0.5) { s.loopStart = Math.min(0.06, b.duration * 0.05); s.loopEnd = b.duration - Math.min(0.06, b.duration * 0.05); }
       const g = this.ctx.createGain(); g.gain.value = 0;
       s.connect(g); g.connect(this.master); s.start();
       l = this.loops[name] = { s, g };

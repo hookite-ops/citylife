@@ -39,9 +39,12 @@ export class FloorView {
     for (const r of p.rooms) if (r.kind === 'stairs') this.stairs(k, r);
     for (const f of p.feats) this.feature(k, f);
     if (p.office || p.civicOffice) this.officeFloor(k);
-    // ─ 호실 ─
+    // ─ 호실 ─ (가게가 많은 층은 가까운 곳부터 조금씩 지음)
+    const shopN = p.rooms.filter(r => r.kind === 'unit' && !r.home).length;
+    this.pending = [];
     for (const r of p.rooms) {
       if (r.kind !== 'unit') continue;
+      if (!r.home && shopN > 6) { this.pending.push({ r, d: p.doors.find(q => q.unit === r) }); continue; }
       const d = p.doors.find(q => q.unit === r);
       if (r.home) {
         const vacant = homeVacant(this.B, this.n, r.k) && !this.isMine(r);
@@ -60,6 +63,22 @@ export class FloorView {
     for (const e of this.elevVis) this.root.add(e.group);
   }
 
+  // 남은 가게 내부를 가까운 것부터 프레임마다 하나씩
+  buildPending(px, pz, budget = 1) {
+    const L = this.pending; if (!L || !L.length) return;
+    const dist = (o) => Math.hypot((o.r.x0 + o.r.x1) / 2 - px, (o.r.z0 + o.r.z1) / 2 - pz);
+    L.sort((a, b) => dist(a) - dist(b));
+    for (let i = 0; i < budget && L.length; i++) {
+      const { r, d } = L.shift();
+      const k = new Kit();
+      const out = buildUnit(k, r, r.tenant, d, { plan: this.plan, B: this.B, n: this.n });
+      for (const z of out?.zones || []) this.zones.push(z);
+      if (out?.spots) this.npcSpots.push(...out.spots.map(s => ({ ...s, room: r })));
+      r.view = out;
+      for (const m of k.meshes()) this.root.add(m);
+      this.colliders.push(...k.colliders);
+    }
+  }
   lights(k, r, ch) {
     const w = r.x1 - r.x0, d = r.z1 - r.z0;
     const sp = r.kind === 'parking' ? 8.4 : r.light === 'tube' ? 3.2 : 3.4;
