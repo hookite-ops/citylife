@@ -16,7 +16,7 @@ export const BREEDS = [
 ];
 const NAMES = { dog: ['초코', '콩이', '보리', '두부', '몽이', '해피', '구름', 'coco'], cat: ['나비', '치즈', '모모', '루루', '까미', '호두', '라떼', '솜이'] };
 
-function petMesh(b) {
+export function petMesh(b) {
   const root = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
   const s = b.size, dog = b.kind === 'dog';

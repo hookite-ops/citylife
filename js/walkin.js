@@ -12,17 +12,29 @@ import * as ST from './state.js';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const LIMIT = { low: { n: 2, r: 30 }, mid: { n: 3, r: 40 }, high: { n: 4, r: 48 } };
 
+const KINDS = { shop: ['shop', 'podium'], mall: ['podium'], apt: ['apt'], villa: ['villa'], office: ['office'], civic: ['civic'] };
 export function walkable(s) {
-  return !!s && (s.bkind === 'shop' || s.bkind === 'mall') && (s.type === 'shop' || s.type === 'podium');
+  return !!s && !s.site && !s.special && !!KINDS[s.bkind]?.includes(s.type);
 }
 
 export class WalkIn {
   constructor(ctx) {   // { S, city, scene, bldg(), quality(), mode(), focus(), company }
-    this.c = ctx; this.list = []; this.t = 0; this.buildT = 0; this.taken = null; this.hourKey = -1;
+    this.unlocks = new Map();
+    this.c = ctx; this.list = []; this.t = 0; this.buildT = 0; this.taken = null; this.hourKey = -1; this.floorCut = null; this.susp = null;
     ctx.city.openBldgs = this.list;
   }
   get S() { return this.c.S; }
   isOpen(s) { return this.list.some(o => o.s === s); }
+  canWalk(s) { return walkable(s); }
+  // 다른 길(우리 집 현관 · 엘리베이터 등)로 들어온 건물도 1층은 걸어 나갈 수 있게 맡아요
+  takeFor(s) {
+    if (!walkable(s)) return null;
+    const ob = this.get(s) || this.open(s);
+    if (!ob) return null;
+    this.taken = ob; this.clearStaff(ob);
+    if (ob.view) { ob.view.dispose(); ob.view = null; }
+    return ob;
+  }
   get(s) { return this.list.find(o => o.s === s); }
   dist(s, p) { const dx = Math.max(s.x0 - p.x, 0, p.x - s.x1), dz = Math.max(s.z0 - p.z, 0, p.z - s.z1); return Math.hypot(dx, dz); }
 
@@ -38,11 +50,13 @@ export class WalkIn {
     anchor.add(view.root);
     this.c.scene.add(anchor);
     const gh = f.h, ext = 0.04;
+    const shopLike = B.kind === 'shop' || B.kind === 'mall';
+    const topA = shopLike ? f.y + gh - 1.42 : f.y + view.plan.ch;
     const ob = {
       s, B, f, view, lifts, anchor, wcols: [], ncol: -1, npcs: [], blockers: [],
       ceil: f.y + view.plan.ch,
       cut: {
-        a0: new THREE.Vector3(s.x0 - ext, f.y - 0.2, s.z0 - ext), a1: new THREE.Vector3(s.x1 + ext, f.y + gh - 1.42, s.z1 + ext),
+        a0: new THREE.Vector3(s.x0 - ext, f.y - 0.2, s.z0 - ext), a1: new THREE.Vector3(s.x1 + ext, topA, s.z1 + ext),
         b0: new THREE.Vector3(s.x0 + 0.24, f.y - 0.2, s.z0 + 0.24), b1: new THREE.Vector3(s.x1 - 0.24, f.y + gh - 0.04, s.z1 - 0.24),
       },
     };
@@ -62,9 +76,18 @@ export class WalkIn {
     this.applyCuts();
   }
   closeAll() { for (const ob of [...this.list]) if (ob !== this.taken) this.close(ob); }
-  applyCuts() { setCuts(this.list.slice(0, CUT_MAX).map(o => o.cut)); }
+  applyCuts() { const cs = this.list.map(o => o.cut); if (this.floorCut) cs.unshift(this.floorCut); setCuts(cs.slice(0, CUT_MAX)); }
+  // 실내 위층: 그 층 부분만 잘라내요
+  setFloorCut(c) { this.floorCut = c; this.applyCuts(); }
+  // 다른 방식으로 들어간 건물과 겹치는 1층은 잠시 닫아요
+  specsOf(B) { return B ? [B.spec, B.spec?.podium, ...(B.spec?.towers || [])].filter(Boolean) : []; }
+  suspendFor(B) {
+    this.susp = B ? this.specsOf(B) : null;
+    if (this.susp) for (const ob of [...this.list]) if (ob !== this.taken && this.susp.includes(ob.s)) this.close(ob);
+  }
   // 실내 벽 → 월드 좌표 상자
   refreshCols(ob) {
+    if (!ob.view) return;
     const cs = ob.view.colliders;
     if (ob.ncol === cs.length) return;
     ob.ncol = cs.length;
@@ -78,7 +101,7 @@ export class WalkIn {
       const lc = d.ax === 'x' ? d.z : d.x;
       const outer = d.ax === 'x' ? Math.abs(Math.abs(d.z) - hd) < 0.3 : Math.abs(Math.abs(d.x) - hw) < 0.3;
       const unit = d.unit && !d.unit.home ? d.unit : null;
-      if (!unit && !outer) continue;
+      if (!unit && !outer && !d.secure) continue;
       const w = d.w / 2 + 0.05;
       const c = d.ax === 'x' ? { x0: d.x - w, x1: d.x + w, z0: lc - 0.2, z1: lc + 0.2 } : { x0: lc - 0.2, x1: lc + 0.2, z0: d.z - w, z1: d.z + w };
       c.blocker = true; c.door = d; c.unit = unit; c.open = true;
@@ -93,7 +116,11 @@ export class WalkIn {
       let open;
       const t = c.unit?.tenant;
       if (c.unit) open = !t ? false : t.vacant ? true : isOpenType(t.type, h, wd);
-      else open = B.kind === 'mall' ? (h >= 9 && h < 23) : !(h >= 1 && h < 6);
+      else if (c.door.secure) open = this.c.bldg().hasCode(B) || (this.unlocks.get(B.id) || 0) > this.S.minutes;
+      else if (B.kind === 'mall') open = h >= 9 && h < 23;
+      else if (B.kind === 'office') open = (h >= 6 && h < 23) || this.c.employedAt?.(B);
+      else if (B.kind === 'civic') open = h >= 7 && h < 22;
+      else open = !(h >= 1 && h < 6);
       if (c.unit && t?.vacant) open = true;   // 빈 가게는 둘러볼 수 있어요
       // 안에 있을 때: 지금 있는 가게와 바깥 출입문은 언제나 나갈 수 있게
       if (ob === this.taken && (!c.unit || this.c.bldg().curUnit === c.unit)) open = true;
@@ -127,9 +154,7 @@ export class WalkIn {
     if (this.t <= 0) {
       this.t = 0.5;
       // 시간이 바뀌면 문 잠금 다시 계산
-      const hk = Math.floor(this.S.minutes / 10);
-      if (hk !== this.hourKey) { this.hourKey = hk; for (const ob of this.list) this.updateBlockers(ob); }
-      else if (this.taken) this.updateBlockers(this.taken);
+      for (const ob of this.list) this.updateBlockers(ob);
       // 멀어진 건물 정리
       for (const ob of [...this.list]) if (ob !== this.taken && this.dist(ob.s, p) > L.r + 25) this.close(ob);
       // 가까운 건물 열기 (한 번에 하나씩)
@@ -137,7 +162,7 @@ export class WalkIn {
       if (this.buildT <= 0 && !this.c.busy()) {
         let best = null, bd = L.r;
         for (const s of this.c.city.bldgs) {
-          if (!walkable(s) || s.open) continue;
+          if (!walkable(s) || s.open || this.susp?.includes(s)) continue;
           const d = this.dist(s, p); if (d < bd) { bd = d; best = s; }
         }
         if (best) {
@@ -151,9 +176,11 @@ export class WalkIn {
         }
       }
     }
+    // 밖에서 보이는 직원들 일하는 동작
+    for (const ob of this.list) if (ob !== this.taken) for (const p of ob.npcs) p.act?.(dt, 'work');
     // 가게 안 꾸미기는 가까운 곳부터 조금씩
     for (const ob of this.list) {
-      if (ob === this.taken) { this.refreshCols(ob); continue; }
+      if (ob === this.taken) { if (ob.view) this.refreshCols(ob); continue; }
       const [lx, lz] = toLocalPt(ob.B, p.x, p.z);
       const added = ob.view.buildPending?.(lx, lz, 1);
       if (added?.length) this.staffFor(ob, added);
@@ -181,6 +208,13 @@ export class WalkIn {
       this.refreshCols(ob); this.updateBlockers(ob);
       this.staffFor(ob, ob.view.npcSpots);
     } else this.close(ob);
+  }
+  // 비밀번호·인터폰으로 공동현관이 열렸어요 (잠깐 열림)
+  unlock(s, minutes = 3) {
+    const ob = this.get(s); if (!ob) return false;
+    this.unlocks.set(ob.B.id, this.S.minutes + minutes);
+    this.updateBlockers(ob);
+    return true;
   }
   // 도시 문 표시(bdoor)가 잠긴 문인지
   doorClosed(bd) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FloorView, homeVacant } from './floorview.js';
 import { Lifts } from './elevator.js';
-import { toWorldPt, toLocalPt, floorLabel, floorShort, tenantMap } from './bplan.js';
+import { toWorldPt, toLocalPt, floorLabel, floorShort, tenantMap, planFloor } from './bplan.js';
 import { TYPES } from './tenants.js';
 import { createPed, SKINS, HAIRS, SHIRTS, PANTS, SHOES } from './human.js';
 import { emojiSprite } from './mart.js';
@@ -135,6 +135,9 @@ export class BldgGame {
 
   // ─ 들어가기: 문 안쪽에 서요 ─
   enter(d) {
+    // 걸어 들어가는 건물이면 문만 열어 줘요
+    const wk = this.c.walkin?.();
+    if (wk?.isOpen(d.spec) && !this.B) { wk.unlock(d.spec, 3); this.c.audio.play?.('door'); toast('🔓 문이 열렸어요 · 걸어서 들어가요', 'good', 2200); return; }
     const B = this.c.city.bldgOf(d.spec);
     if (this.B !== B) { this.lifts = new Lifts(B); }
     this.B = B; this.entryDoor = d;
@@ -179,27 +182,33 @@ export class BldgGame {
     const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit, company: this.c.company, ...(walk1 ? { lazyAll: true, skin: B.spec.color || [0.8, 0.8, 0.78] } : {}) });
     this.view = view;
     if (walk1) { this.ob.view = view; this.ob.ncol = -1; this.ob.blockers = []; this.c.walkin?.()?.addBlockers(this.ob); }
-    // 아래층 덩어리 (창밖으로 내려다볼 때)
-    const base = B.kind === 'tower' && n >= 4 ? B.spec.y0 : B.spec.y0;
-    const hBelow = f.y - base;
-    if (hBelow > 1.5 && !f.parking && !walk1) {
-      const col = B.spec.color || [0.75, 0.75, 0.74];
-      const stub = new THREE.Mesh(new THREE.BoxGeometry(B.L - 0.6, hBelow - 0.35, B.D - 0.6), new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(col[0], col[1], col[2], THREE.SRGBColorSpace), roughness: 0.8 }));
-      stub.position.set(0, -(hBelow - 0.35) / 2 - 0.35, 0); view.root.add(stub);
-    }
-    // 바닥 슬래브 (아래가 비어 보이지 않게)
-    if (!walk1) {
+    // 실제 높이에 지어요: 건물 겉모습은 그대로 두고, 이 층 부분만 잘라내요 (옥상만 예전처럼 숨김)
+    const wk = this.c.walkin?.();
+    const sp = B.kind === 'tower' ? (n === 1 || f.parking ? B.spec.podium : B.spec) : B.spec;
+    if (!walk1) wk?.suspendFor(B);
+    if (f.roof) {
+      const base = B.spec.y0, hBelow = f.y - base;
+      if (hBelow > 1.5) {
+        const col = B.spec.color || [0.75, 0.75, 0.74];
+        const stub = new THREE.Mesh(new THREE.BoxGeometry(B.L - 0.6, hBelow - 0.35, B.D - 0.6), new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(col[0], col[1], col[2], THREE.SRGBColorSpace), roughness: 0.8 }));
+        stub.position.set(0, -(hBelow - 0.35) / 2 - 0.35, 0); view.root.add(stub);
+      }
       const slab = new THREE.Mesh(new THREE.BoxGeometry(B.L + 0.4, 0.3, B.D + 0.4), new THREE.MeshStandardMaterial({ color: 0x9a9a96, roughness: 0.9 }));
       slab.position.set(0, -0.16, 0); view.root.add(slab);
-    }
+      wk?.setFloorCut(null);
+    } else if (!walk1 && sp && n >= 1 && !f.parking) {
+      const e = 0.06, ch = view.plan.ch;
+      wk?.setFloorCut({
+        a0: new THREE.Vector3(sp.x0 - e, f.y - 0.05, sp.z0 - e), a1: new THREE.Vector3(sp.x1 + e, f.y + ch, sp.z1 + e),
+        b0: new THREE.Vector3(sp.x0 + 0.24, f.y - 0.2, sp.z0 + 0.24), b1: new THREE.Vector3(sp.x1 - 0.24, f.y + f.h - 0.04, sp.z1 - 0.24),
+      });
+    } else wk?.setFloorCut(null);
     this.anchor.position.set(B.cx, f.y + 0.03, B.cz);
     this.anchor.rotation.y = B.rot;
     this.anchor.add(view.root);
     if (!this.anchor.parent) this.c.scene.add(this.anchor);
-    // 건물 겉모습 숨기기
     const hide = B.kind === 'tower' ? (n === 1 || f.parking ? [B.spec.podium] : [B.spec]) : [B.spec];
-    if (B.kind === 'mall' && B.spec.towers && (n < 0)) hide.push(...B.spec.towers.filter(t => !t.site));
-    this.c.city.setHidden(walk1 ? [] : hide.filter(Boolean));
+    this.c.city.setHidden(f.roof ? hide.filter(Boolean) : []);
     const site = this.site || (this.site = { kind: 'bldg', anchor: this.anchor, inside: true });
     Object.assign(site, { rot: B.rot, x: B.cx, z: B.cz, W: B.L, D: B.D, toLocal: (wx, wz) => toLocalPt(B, wx, wz), toWorld: (lx, lz) => toWorldPt(B, lx, lz) });
     if (first) this.c.enterSite(site, view, place.x, place.z, place.heading);
@@ -220,9 +229,10 @@ export class BldgGame {
     this.riding = null;
     this.c.shop?.()?.onExitBuilding?.();
     if (this.c.shop?.()?.c.jobs?.onShift) this.c.shop().c.jobs.clockOut(true);
-    const cr = this.c.career?.(); if (cr?.working && this.S.career && ST.hour(this.S) % 24 < this.S.career.end) { toast('🏃 일하다 말고 나왔어요… (조퇴 처리)', 'bad'); this.S.career.perf -= 1; cr.clockOut(); } else if (cr?.working) cr.clockOut();
+    const cr = this.c.career?.(); if (cr?.dispatching) { /* 출동 중: 근무 계속 */ } else if (cr?.working && this.S.career && ST.hour(this.S) % 24 < this.S.career.end) { toast('🏃 일하다 말고 나왔어요… (조퇴 처리)', 'bad'); this.S.career.perf -= 1; cr.clockOut(); } else if (cr?.working) cr.clockOut();
     this.c.leaveSite(seamless);
     this.c.city.setHidden([]);
+    this.c.walkin?.()?.setFloorCut(null); this.c.walkin?.()?.suspendFor(null);
     if (this.ob) {
       // 걸어 나가면 1층은 그대로 남겨요 (다시 보이게)
       const ob = this.ob; this.ob = null;
@@ -410,8 +420,10 @@ export class BldgGame {
     const B = this.c.city.bldgOf(spec);
     if (this.B !== B) this.lifts = new Lifts(B);
     this.B = B;
+    const ob = !this.ob && this.c.walkin?.()?.takeFor(spec);
+    if (ob) { this.ob = ob; this.anchor = ob.anchor; this.lifts = ob.lifts; }
     this.entryDoor = this.c.city.bdoors.find(q => q.spec === spec && (q.door?.secure || q.lobby)) || this.c.city.bdoors.find(q => q.spec === spec);
-    const p = new FloorView(B, h.n, this.lifts, { myHome: h }).plan; // 문 위치만
+    const p = planFloor(B, h.n); // 문 위치만
     const d = p.doors.find(q => q.unit && q.unit.k === h.k);
     let x = 0, z = 0, hd = 0;
     if (d) { const u = d.unit; const c = d.ax === 'x' ? Math.sign((u.z0 + u.z1) / 2 - d.z) : Math.sign((u.x0 + u.x1) / 2 - d.x); const nx = d.ax === 'x' ? 0 : -c, nz = d.ax === 'x' ? -c : 0; x = d.x + nx * 0.9; z = d.z + nz * 0.9; hd = Math.atan2(nx, nz); }
@@ -515,7 +527,14 @@ export class BldgGame {
         else { n.pos.x += dx / d * sp; n.pos.z += dz / d * sp; n.p.root.rotation.y = Math.atan2(dx, dz); }
         n.p.animate(dt, 1.2);
         if (!n.path.length) n.dead = true;
-      } else if (!n.sit) n.p.animate(dt, 0);
+      } else {
+        if (!n.sit && !n.act) n.p.animate(dt, 0);
+        // 하는 일에 맞는 동작
+        n.actT = (n.actT ?? (3 + Math.random() * 6)) - dt;
+        if (n.role === 'customer' && n.actT <= 0) { n.actT = 4 + Math.random() * 8; n.act = pick(['eat', 'eat', 'talk', 'phone']); }
+        const kind = n.act || ({ staff: 'work', barista: 'work', cook: 'work', stylist: 'work', worker: 'type', teacher: 'talk', doctor: 'talk' })[n.role] || 'idle';
+        n.p.act?.(dt, kind);
+      }
       if (n.role === 'rider') { n.until -= dt; if (n.until <= 0 && n.car?.door > 0.9) n.dead = true; }
     }
     for (const n of this.npcs.filter(q => q.dead)) { n.p.root.parent?.remove(n.p.root); this.npcs.splice(this.npcs.indexOf(n), 1); }

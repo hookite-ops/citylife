@@ -523,8 +523,17 @@ const FAM = {
   mart(u) {
     const w = u.w, d = u.d;
     for (let a = -w / 2 + 1.5; a < w / 2 - 1.5; a += 2.0) FUR.shelf(u.k, ...u.p(a, d - 0.3), u.F.face(0, -1), { w: 1.9, d: 0.5, h: 1.9 });
-    for (let v = 3.0; v < d - 2.5; v += 2.4) { FUR.shelf(u.k, ...u.p(-0.6, v), u.F.face(0, -1), { w: Math.min(4, w - 4), d: 0.45, h: 1.5 }); FUR.shelf(u.k, ...u.p(-0.6, v + 0.46), u.F.face(0, 1), { w: Math.min(4, w - 4), d: 0.45, h: 1.5 }); u.zone('shelf', -0.6 - Math.min(2, w / 2 - 2), v - 0.9, -0.6 + Math.min(2, w / 2 - 2), v + 1.4, { goods: 'mart' }); }
+    // 진열대마다 파는 물건이 달라요 (라면·식료품 / 과자 / 생활·문구), 냉장고는 음료·아이스크림·간편식
+    const AISLES = [{ cats: ['ramen', 'grocery'], aisle: '🍜 라면·식료품' }, { cats: ['snack', 'ssnack'], aisle: '🍪 과자·간식' }, { cats: ['snote', 'spen', 'soffice', 'sart', 'stoy'], aisle: '✏️ 생활·문구' }];
+    const vs = []; for (let v = 3.0; v < d - 2.5; v += 2.4) vs.push(v);
+    vs.forEach((v, j) => {
+      FUR.shelf(u.k, ...u.p(-0.6, v), u.F.face(0, -1), { w: Math.min(4, w - 4), d: 0.45, h: 1.5 }); FUR.shelf(u.k, ...u.p(-0.6, v + 0.46), u.F.face(0, 1), { w: Math.min(4, w - 4), d: 0.45, h: 1.5 });
+      let g = AISLES[j % AISLES.length];
+      if (j === vs.length - 1 && vs.length < AISLES.length) { const rest = AISLES.slice(j); g = { cats: rest.flatMap(a => a.cats), aisle: rest.map(a => a.aisle).join(' · ') }; }
+      u.zone('shelf', -0.6 - Math.min(2, w / 2 - 2), v - 0.9, -0.6 + Math.min(2, w / 2 - 2), v + 1.4, { goods: 'mart', cats: g.cats, aisle: g.aisle });
+    });
     for (let i = 0; i < 2; i++) FUR.fridge(u.k, ...u.p(-w / 2 + 0.4, 2.0 + i * 1.3), u.F.face(1, 0), { w: 1.2 });
+    u.zone('shelf', -w / 2 + 0.4, 1.3, -w / 2 + 1.5, 4.0, { goods: 'mart', cats: ['drink', 'ice', 'chill'], aisle: '🧊 냉장고 · 음료·아이스크림·도시락' });
     u.counterAt(w / 2 - 1.2, 1.4, -1, 0, { w: 1.8 }); counterZone(u, w / 2 - 1.2, 1.4, -1, 0, 'counter', 1.8);
   },
   grocer(u) {

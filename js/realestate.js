@@ -392,6 +392,8 @@ export class RealEstate {
         <div class="note" style="color:#ddd">가격</div><div class="tabs">${[[0.85, '저렴하게'], [1, '보통'], [1.2, '비싸게']].map(([v, n]) => `<button data-act="pr:${v}" class="${sh.price === v ? 'on' : ''}">${n}</button>`).join('')}</div>
         <div class="note" style="color:#ddd;margin-top:8px">직원 (하루 8시간 · 1명당 ${won(10320 * 8)})</div><div class="tabs">${[0, 1, 2, 3].map(v => `<button data-act="st:${v}" class="${sh.staff === v ? 'on' : ''}">${v}명</button>`).join('')}</div>
         <p class="note">직원이 없으면 내가 카운터에서 일한 시간에만 장사해요. 내가 직접 일하면 평판이 올라가요.</p>
+        <div class="note" style="color:#ddd;margin-top:8px">📝 손님 리뷰 ${sh.reviews?.length ? `· 평균 ${(sh.reviews.reduce((a, r) => a + r.st, 0) / sh.reviews.length).toFixed(1)}점` : ''}</div>
+        ${(sh.reviews || []).slice(0, 5).map(r => `<div class="row"><div class="ic">${r.st >= 4 ? '😊' : r.st === 3 ? '🙂' : '😞'}</div><div class="info"><b>${'⭐'.repeat(r.st)}</b><span>${r.who} · "${r.text}" · ${ST.day(S) - r.day === 0 ? '오늘' : ST.day(S) - r.day + '일 전'}</span></div></div>`).join('') || '<p class="note">아직 리뷰가 없어요 · 하루가 지나면 손님 리뷰가 달려요</p>'}
         <button class="btn wide red" data-act="close">폐업하기 (자리 계약도 끝남)</button>`,
       bind: (b) => bindActs(b, {
         pr: (v) => { sh.price = +v; this.manageShop(c); this.c.persist(); },
@@ -424,6 +426,23 @@ export class RealEstate {
     S.money += profit;
     if (worked > 0) sh.rating = Math.min(5, sh.rating + 0.08);
     if (sh.staff === 0 && !worked) sh.rating = Math.max(1, sh.rating - 0.05);
+    // 손님 리뷰: 가격 · 직원 · 사장님이 직접 일했는지에 따라 별점이 달라져요 → 평판에 반영
+    const nRev = est.cust > 0 ? 1 + Math.floor(Math.random() * 2) : 0;
+    sh.reviews = sh.reviews || [];
+    for (let i = 0; i < nRev; i++) {
+      let st = 3.4 + (sh.price < 1 ? 0.7 : sh.price > 1 ? -0.9 : 0) + (worked > 0 ? 0.8 : 0) + (sh.staff >= 2 ? 0.3 : sh.staff === 0 ? -0.6 : 0) + (Math.random() - 0.5) * 1.6;
+      st = Math.max(1, Math.min(5, Math.round(st)));
+      const T = {
+        5: ['사장님이 너무 친절해요! 단골 할게요 😊', '가성비 최고예요. 또 올게요', '분위기도 좋고 맛있어요 👍'],
+        4: ['괜찮았어요. 다음에 또 들를게요', '깔끔하고 좋네요', '직원분들이 친절해요'],
+        3: ['무난해요', '평범했어요', '나쁘지 않아요'],
+        2: ['가격에 비해 아쉬워요', '오래 기다렸어요…', '조금 불친절했어요'],
+        1: ['너무 비싸요 😞', '문이 닫혀 있어서 헛걸음했어요', '다시는 안 올 것 같아요'],
+      }[st];
+      sh.reviews.unshift({ day, st, text: T[Math.floor(Math.random() * T.length)], who: ['김**', '이**', '박**', '최**', '정**', '한**'][Math.floor(Math.random() * 6)] });
+      sh.rating = Math.max(1, Math.min(5, sh.rating + (st - sh.rating) * 0.06));
+    }
+    if (sh.reviews.length > 12) sh.reviews.length = 12;
     sh.workedHours = 0;
     if (est.cust > 0 || profit !== 0) toast(`${TYPES[sh.type]?.icon || '🏪'} ${sh.name} 어제 정산 · 손님 ${Math.round(est.cust * noise)}명 · 매출 ${won(rev)} · ${profit >= 0 ? '이익' : '손해'} ${won(Math.abs(profit))}`, profit >= 0 ? 'good' : 'bad', 5000);
   }

@@ -179,10 +179,29 @@ export function createPed(o) {
       const sw = Math.sin(phase) * amp;
       r.legs[0].hip.rotation.x = sw; r.legs[1].hip.rotation.x = -sw;
       r.arms[0].shoulder.rotation.x = -sw; r.arms[1].shoulder.rotation.x = sw;
+      r.arms[1].shoulder.rotation.z *= 0.8; r.headPivot.rotation.x *= 0.8; r.headPivot.rotation.y *= 0.8;
     },
     sit() {
       for (const l of r.legs) l.hip.rotation.x = -Math.PI / 2;
       r.body.position.y = -HIP + 0.46;
+      this.seated = true;
+    },
+    // 하는 일 동작: work(손 움직이기) · type(타자) · eat(먹기) · talk(대화) · phone(휴대폰 보기) · idle
+    act(dt, kind) {
+      phase += dt;
+      const k = Math.min(1, dt * 6), to = (o, key, v) => { o[key] += (v - o[key]) * k; };
+      const A0 = r.arms[0].shoulder.rotation, A1 = r.arms[1].shoulder.rotation, H = r.headPivot.rotation;
+      let a0 = this.seated ? -0.35 : 0, a1 = a0, hx = 0, hy = 0, z1 = 0;
+      switch (kind) {
+        case 'work': a0 = -0.95 + Math.sin(phase * 7) * 0.22; a1 = -0.95 + Math.sin(phase * 7 + 2) * 0.22; hx = 0.25; break;
+        case 'type': a0 = -1.15 + Math.sin(phase * 15) * 0.06; a1 = -1.15 + Math.sin(phase * 15 + 1.5) * 0.06; hx = 0.18; break;
+        case 'eat': { const c = (phase % 3.2) / 3.2; a1 = c < 0.25 ? -2.1 : -0.75; a0 = -0.7; hx = c < 0.25 ? 0.05 : 0.3; break; }
+        case 'talk': hy = Math.sin(phase * 1.1) * 0.35; a1 = (this.seated ? -0.6 : -0.3) + Math.sin(phase * 2.3) * 0.35; hx = Math.sin(phase * 3.1) * 0.06; break;
+        case 'phone': a1 = -1.75; z1 = 0.35; hx = 0.35; break;
+        default: hx = Math.sin(phase * 0.7) * 0.04;
+      }
+      to(A0, 'x', a0); to(A1, 'x', a1); to(A1, 'z', z1); to(H, 'x', hx); to(H, 'y', hy);
+      if (!this.seated) r.body.position.y = Math.sin(phase * 1.6) * 0.006;
     },
   };
 }

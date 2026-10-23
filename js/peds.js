@@ -37,14 +37,19 @@ export class Peds {
     const x0 = r.x0 + inset, z0 = r.z0 + inset, x1 = r.x1 - inset, z1 = r.z1 - inset;
     const per = 2 * (x1 - x0) + 2 * (z1 - z0);
     const female = Math.random() < 0.5;
+    // 나이·직업: 아이 · 학생 · 직장인 · 어르신
+    const r0 = Math.random(), age = r0 < 0.1 ? 'kid' : r0 < 0.25 ? 'student' : r0 < 0.85 ? 'adult' : 'elder';
+    const worker = age === 'adult' && Math.random() < 0.4;
     const p = createPed({
-      skin: pick(SKINS), hair: pick(HAIRS), shirt: pick(SHIRTS), pants: pick(PANTS), shoes: pick(SHOES),
-      hairStyle: female ? (Math.random() < 0.6 ? 'long' : 'bun') : (Math.random() < 0.25 ? 'spiky' : 'short'), hat: Math.random() < 0.12 ? pick([0x1a1a1a, 0xd63a3a, 0x2f6fd6]) : null, bag: Math.random() < 0.3 ? pick([0x222222, 0x6a4a2a, 0x2a3a5a]) : null,
+      skin: pick(SKINS), hair: age === 'elder' ? pick([0xd8d8d8, 0xbdbdbd, 0x8a8a8a]) : pick(HAIRS),
+      shirt: worker ? pick([0xf2f2f2, 0x1f3a6a, 0x2a2a2a, 0x30343a]) : pick(SHIRTS), pants: worker ? pick([0x23262b, 0x1a1a1a, 0x2a3f6a]) : pick(PANTS), shoes: pick(SHOES),
+      hairStyle: female ? (Math.random() < 0.6 ? 'long' : 'bun') : (Math.random() < 0.25 && age !== 'elder' ? 'spiky' : 'short'), hat: Math.random() < (age === 'elder' ? 0.35 : 0.12) ? pick([0x1a1a1a, 0xd63a3a, 0x2f6fd6, 0x8a6a4a]) : null,
+      bag: age === 'student' || age === 'kid' ? pick([0xd63a3a, 0x2f6fd6, 0xf2c230, 0x2f9a4a]) : Math.random() < 0.3 ? pick([0x222222, 0x6a4a2a, 0x2a3a5a]) : null,
     });
-    const s = 0.92 + Math.random() * 0.16;
-    p.root.scale.setScalar(female ? s * 0.94 : s);
+    const s = (age === 'kid' ? 0.68 : age === 'student' ? 0.88 : 0.92) + Math.random() * 0.12;
+    p.root.scale.setScalar(female ? s * 0.95 : s);
     this.group.add(p.root);
-    this.list.push({ p, rect: [x0, z0, x1, z1], per, s: Math.random() * per, dir, speed: 1.1 + Math.random() * 0.5, cur: 0, wait: 0, pos: new THREE.Vector3(), name: pedName(), req: Math.random() < 0.35, reqItem: pedItem() });
+    this.list.push({ p, rect: [x0, z0, x1, z1], per, s: Math.random() * per, dir, speed: (age === 'elder' ? 0.8 : age === 'kid' ? 1.4 : 1.1) + Math.random() * 0.5, cur: 0, wait: 0, pos: new THREE.Vector3(), name: pedName(), req: Math.random() < 0.35, reqItem: pedItem(), age, phone: age !== 'kid' && Math.random() < (age === 'elder' ? 0.15 : 0.55) });
   }
   pointAt(o, s) {
     const [x0, z0, x1, z1] = o.rect, w = x1 - x0, d = z1 - z0;
@@ -94,7 +99,10 @@ export class Peds {
       const want = o.talk > 0 ? Math.atan2(playerPos.x - o.pos.x, playerPos.z - o.pos.z) : Math.atan2(fx, fz);
       let dh = want - root.rotation.y; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
       root.rotation.y += dh * Math.min(1, dt * 8);
-      o.p.animate(dt, o.cur);
+      // 멈춰 있을 때: 휴대폰 보거나 두리번
+      if (o.cur < 0.15 && o.talk <= 0) o.p.act?.(dt, o.phone ? 'phone' : 'idle');
+      else if (o.talk > 0) o.p.act?.(dt, 'talk');
+      else o.p.animate(dt, o.cur);
     }
   }
   // 말 걸 수 있는 가장 가까운 사람

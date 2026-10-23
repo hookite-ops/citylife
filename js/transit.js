@@ -231,6 +231,8 @@ export class Transit {
 
   // ─ 버튼 ─
   action(p) {
+    const ba = this.c.busRide?.boardAction(p);
+    if (ba) return ba;
     if (this.riding) {
       const r = this.riding;
       if (r.kind === 'bike') { const d = this.near(this.docks, p, 4); if (d) return { label: '🚲 자전거 반납하기', fn: () => this.endRide(d), green: true }; return null; }
@@ -294,6 +296,8 @@ export class Transit {
   async rideBus(st, dest, waitMin) {
     const to = this.nearestStop(dest.x, dest.z);
     if (to === st) { toast('🚶 걸어가는 게 더 빨라요'); return; }
+    // 진짜 버스: 정류장에 버스가 와서 서면 직접 타요
+    if (this.c.busRide?.call(st, to, dest, this.stops)) return;
     if (!this.tap('bus')) return;
     const d = Math.hypot(to.x - st.x, to.z - st.z) * 1.25;
     const minutes = waitMin + d / 250;
@@ -310,6 +314,8 @@ export class Transit {
     if (!this.tap('subway')) return;
     const d = Math.hypot(to.x - sta.x, to.z - sta.z) * 1.15;
     const minutes = 5 + d / 650;
+    // 진짜 지하철: 승강장 → 열차 → 역마다 정차
+    if (this.c.subway) { this.c.subway.start({ from: sta.name, to: to.name, names: [...this.between(this.stations, sta, to, 3), to.name], minutes, dest, toSta: to }); return; }
     this.c.setBusy(true);
     const names = [...this.between(this.stations, sta, to, 3), to.name];
     await playRide({ kind: 'subway', title: '한빛선', sub: `${sta.name} → ${to.name} · 약 ${Math.round(minutes)}분`, stops: names, color: '#1f7a3f', sec: 3.2,

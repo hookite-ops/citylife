@@ -117,6 +117,14 @@ export const INTERACT = {
   bed: '잠자기', bed2: '잠자기', fridge: '냉장고 열기', tv: 'TV 보기', piano: '피아노 치기', pc: '게임하기', desk: '자격증 공부', sofa: '소파에서 쉬기', shelf: '책 읽기',
 };
 
+// 집 꾸미기 옵션 (가격 · 색)
+export const DECO = {
+  wall: [{ id: 'cream', name: '크림 벽지', c: '#efe8dc', price: 0 }, { id: 'sky', name: '하늘색 벽지', c: '#dbe8f2', price: 150000 }, { id: 'mint', name: '민트 벽지', c: '#d8eee2', price: 150000 },
+    { id: 'pink', name: '연분홍 벽지', c: '#f4e0e3', price: 150000 }, { id: 'gray', name: '모던 그레이', c: '#d4d6d9', price: 180000 }, { id: 'navy', name: '네이비 포인트', c: '#3a4660', price: 220000 }, { id: 'wood', name: '우드 패널', c: '#b89470', price: 280000 }],
+  floor: [{ id: 'oak', name: '원목 마루', price: 0 }, { id: 'white', name: '화이트 오크', tint: 0xf4ece2, price: 300000 }, { id: 'walnut', name: '월넛 마루', tint: 0x86684e, price: 350000 },
+    { id: 'tile', name: '회색 타일', tint: 0xc6c9cc, tile: true, price: 400000 }, { id: 'marble', name: '대리석', tint: 0xf2f0ec, tile: true, price: 900000 }],
+  light: [{ id: 'warm', name: '전구색 (따뜻함)', c: 0xffe2b8, price: 0 }, { id: 'day', name: '주광색 (밝음)', c: 0xeef4ff, k: 1.15, price: 40000 }, { id: 'mood', name: '무드등 (은은한 주황)', c: 0xff9a5a, k: 0.7, price: 60000 }, { id: 'pinkl', name: '핑크 무드', c: 0xffa8c8, k: 0.75, price: 60000 }],
+};
 export class Interior {
   constructor(renderer) {
     this.scene = new THREE.Scene();
@@ -139,11 +147,13 @@ export class Interior {
     this.W = W; this.D = D;
     this.floorTex.repeat.set(1, 1);
     const floor = new GB(); floor.top(-W / 2, -D / 2, W / 2, D / 2, 0, 1.6, 1.6);
-    const fm = new THREE.Mesh(floor.build(), new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.55 }));
+    this.floorMat = new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.55 });
+    const fm = new THREE.Mesh(floor.build(), this.floorMat);
     fm.receiveShadow = true; this.root.add(fm);
     this.floor = fm;
     const wallColor = homeId === 'pent' ? '#e9e6e0' : homeId === 'apt' ? '#efe8dc' : '#e6ded0';
-    const wallMat = new THREE.MeshStandardMaterial({ map: T.wallpaper(wallColor), roughness: 0.9 });
+    const wallMat = this.wallMat = new THREE.MeshStandardMaterial({ map: T.wallpaper(wallColor), roughness: 0.9 });
+    this.baseWall = wallColor;
     this.walls = [];
     // 벽: [p, q, 바깥 방향]
     const winW = homeId === 'pent' ? W - 1 : homeId === 'apt' ? 4 : 2;
@@ -217,10 +227,23 @@ export class Interior {
     this.sunL.position.set(-3, 8, -D / 2 - 6);
     this.sunL.target.position.set(0, 0, 0);
     for (const p of placed) this.addItem(p);
+    this.applyDeco(this.deco);
     this.lampLights.forEach(l => this.scene.remove(l));
     this.lampLights = [];
   }
 
+  // ⑤ 집 꾸미기: 벽지 · 바닥 · 조명 색
+  applyDeco(deco) {
+    this.deco = deco || null;
+    if (!this.wallMat) return;
+    const d = deco || {};
+    const wall = DECO.wall.find(o => o.id === d.wall), floor = DECO.floor.find(o => o.id === d.floor), light = DECO.light.find(o => o.id === d.light);
+    const wc = wall?.c || this.baseWall;
+    if (this.wallMat.userData.c !== wc) { this.wallMat.map?.dispose(); this.wallMat.map = T.wallpaper(wc); this.wallMat.userData.c = wc; this.wallMat.needsUpdate = true; }
+    this.floorMat.color.setHex(floor?.tint ?? 0xffffff);
+    this.floorMat.map = floor?.tile ? null : this.floorTex; this.floorMat.roughness = floor?.tile ? 0.35 : 0.55; this.floorMat.needsUpdate = true;
+    if (this.lampMat) { this.lampMat.emissive.setHex(light?.c ?? 0xffe2b8); this.lampColor = light?.c ?? 0xffe2b8; this.lampBoost = light?.k ?? 1; }
+  }
   wallWithWindow(g, W, H, z, ww, y0, y1) {
     const x0 = -ww / 2, x1 = ww / 2;
     g.wall(W / 2, z, x1, z, 0, H);

@@ -1,4 +1,5 @@
 import { TYPES } from './tenants.js';
+import { clerkOf, regularInfo, addVisit } from './neighbors.js';
 import { MENUS, GOODS, SERVICES, ORDER_STYLE, SIDES, SIDE_SETS, CASH_ONLY, menuTag } from './shopdata.js';
 import { $, toast, openSheet, closeSheet, sheetOpen, bindActs, row, fade, wait, bigMsg } from './ui.js';
 import { isOpenType, hoursLabel } from './bldggame.js';
@@ -28,6 +29,13 @@ export class ShopGame {
     ctx.checkout = (t, o, f) => {
       const sale = this.sess?.t?.sale;
       if (sale && t > 0) { const nt = Math.round(t * (1 - sale / 100) / 10) * 10; o = { ...o, sub: `🏷️ ${sale}% 할인 (${won(t)} → ${won(nt)}) · ${o?.sub || ''}` }; t = nt; }
+      // 단골 할인 · 방문 기록 (같은 가게를 자주 오면)
+      const key = this.regKey();
+      if (key && t > 0) {
+        const reg = regularInfo(this.S, key);
+        if (reg.off) { const nt = Math.round(t * (1 - reg.off / 100) / 10) * 10; o = { ...o, sub: `${reg.label} ${reg.off}% 할인 (${won(t)} → ${won(nt)}) · ${o?.sub || ''}` }; t = nt; }
+        const f0 = f; f = (...a) => { addVisit(this.S, key); return f0?.(...a); };
+      }
       return raw(t, o, f);
     };
   }
@@ -42,8 +50,22 @@ export class ShopGame {
       const t = z.tenant, R = seeded(Math.floor(this.S.minutes / 1440) * 7 + (z.unit.k || 0) * 13 + (t.slot || 0));
       this.sess = { unit: z.unit, t, type: t.type, fam: TYPES[t.type]?.fam, stage: 'none', bill: [], owed: 0, basket: {}, items: [], cashOnly: R() < (CASH_ONLY[t.type] || 0) };
       if (t.sale) toast(t.grand !== undefined ? `🎉 신장개업! 이번 주 ${t.sale}% 할인해 드려요` : `🏷️ 이번 주 ${t.sale}% 세일 중!`, 'good', 3000);
+      else setTimeout(() => { if (this.sess?.unit === z.unit) this.greet(this.sess); }, 50);
     }
     return this.sess;
+  }
+  // 이 가게 (건물·층·호 + 상호) 기준 단골 기록
+  regKey() {
+    const s = this.sess, b = this.bldg;
+    if (!s?.t || !b?.B || s.t.vacant) return null;
+    return `${b.B.id}:${b.n}:${s.unit.k}:${s.t.name}`;
+  }
+  greet(s) {
+    const key = this.regKey(); if (!key) return;
+    const clerk = clerkOf(key, s.type), reg = regularInfo(this.S, key);
+    const h = this.hour();
+    const hi = reg.lv === 2 ? `"어머, 오셨어요! 늘 드시던 걸로 드릴까요?"` : reg.lv === 1 ? `"또 오셨네요! 반가워요 😊"` : reg.n ? `"어서 오세요~ 지난번에 오셨죠?"` : h < 11 ? '"좋은 아침이에요, 어서 오세요!"' : '"어서 오세요~"';
+    toast(`🙋 ${clerk}: ${hi}${reg.label ? ` · ${reg.label} ${reg.off}% 할인` : ''}`, reg.lv ? 'good' : '', 3200);
   }
   cashNote(s) { return s.cashOnly ? '<p class="note" style="color:var(--warn)">💵 이 가게는 현금만 받아요</p>' : ''; }
 
@@ -73,7 +95,7 @@ export class ShopGame {
       case 'tray': return s.tray ? { label: '🍽 쟁반 들고 있어요 · 빵을 담아요', fn: () => {} } : { label: '🍽 쟁반 · 집게 들기', fn: () => { s.tray = true; this.c.audio.play?.('pick'); toast('🍽 쟁반이랑 집게를 들었어요 · 진열대에서 빵을 담아요'); }, green: true };
       case 'shelf':
         if (z.bread) return { label: '🥐 빵 담기', fn: () => s.tray ? this.breadSheet(s) : toast('🍽 입구 옆에서 쟁반과 집게부터 들어요', 'bad'), green: !!s.tray };
-        return { label: `🛒 둘러보기 · 장바구니 ${this.count(s)}개`, fn: () => this.goodsSheet(s, z.goods || GOODS_OF[fam]) };
+        return { label: `🛒 ${z.aisle ? z.aisle.replace(/^\S+\s/, '') + ' 진열대' : '둘러보기'} · 장바구니 ${this.count(s)}개`, fn: () => this.goodsSheet(s, z.goods || GOODS_OF[fam], z) };
       case 'krroom': return this.karaokeRoom(z, s);
       case 'pcseat': return this.pcSeat(z, s);
       case 'desk': return this.studyDesk(z, s);
@@ -355,11 +377,12 @@ export class ShopGame {
   }
 
   // ───────── 물건 가게 ─────────
-  goodsSheet(s, key) {
-    const list = key === 'mart' ? (this.c.martGoods?.() || []) : GOODS[key] || [];
+  goodsSheet(s, key, z = null) {
+    const all = key === 'mart' ? (this.c.martGoods?.() || []) : GOODS[key] || [];
+    const list = z?.cats ? all.filter(g => z.cats.includes(g.cat)) : all;
     if (!list.length) { toast('🛒 둘러봤어요'); return; }
     const open = () => openSheet({
-      icon: TYPES[s.type]?.icon || '🛒', title: s.t.name, sub: `장바구니 ${this.count(s)}개 · ${won(this.basketTotal(s, key))} · 계산은 카운터에서`,
+      icon: TYPES[s.type]?.icon || '🛒', title: z?.aisle ? `${s.t.name} · ${z.aisle}` : s.t.name, sub: `장바구니 ${this.count(s)}개 · ${won(this.basketTotal(s, key))} · 계산은 카운터에서`,
       html: list.map(g => row({ icon: g.icon, title: g.name, desc: g.desc || (g.food ? `${g.n || 1}개 · 배고픔 +${g.food.hunger}` : g.ing ? '요리 재료' : ''), price: won(g.price), extra: s.basket[g.id] ? `<button class="btn gray" data-act="minus:${g.id}">−</button><b style="min-width:22px;text-align:center">${s.basket[g.id]}</b>` : '', btn: '담기', action: 'add:' + g.id })).join(''),
       bind: (b) => bindActs(b, { add: (id) => { s.basket[id] = (s.basket[id] || 0) + 1; this.c.audio.play?.('pick'); open(); }, minus: (id) => { s.basket[id]--; if (s.basket[id] <= 0) delete s.basket[id]; open(); } }),
     });

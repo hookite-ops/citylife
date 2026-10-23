@@ -5,6 +5,7 @@ import { MENUS } from './shopdata.js';
 import { won } from './config.js';
 import { unitKey } from './tenants.js';
 import * as ST from './state.js';
+import { espressoGame } from './minigames.js';
 
 export const MIN_WAGE = 10320;
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -12,7 +13,7 @@ const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { co
 
 // 업무: 주문 → 레시피(누르는 순서)
 const RECIPES = {
-  cafe: () => { const m = pick(MENUS.cafe.filter(q => q.recipe)); return { name: m.name, icon: m.icon, steps: m.recipe, pool: ['얼음', '샷', '물', '우유', '시럽', '티', '딸기청', '휘핑'] }; },
+  cafe: () => { const m = pick(MENUS.cafe.filter(q => q.recipe)); return { name: m.name, icon: m.icon, steps: m.recipe, pool: ['얼음', '샷', '물', '우유', '시럽', '티', '딸기청', '휘핑'], shot: m.recipe.includes('샷'), latte: m.recipe.includes('우유') && !m.recipe.includes('얼음'), iced: m.recipe.includes('얼음') }; },
   burger: () => { const k = pick(['클래식', '치즈', '불고기']); const steps = k === '치즈' ? ['아래 빵', '패티', '치즈', '피클', '위 빵'] : k === '불고기' ? ['아래 빵', '불고기 패티', '양상추', '마요', '위 빵'] : ['아래 빵', '패티', '양상추', '토마토', '소스', '위 빵']; return { name: `${k} 버거`, icon: '🍔', steps, pool: ['아래 빵', '위 빵', '패티', '불고기 패티', '치즈', '양상추', '토마토', '피클', '소스', '마요'] }; },
   bunsik: () => pick([{ name: '떡볶이', icon: '🌶️', steps: ['떡', '어묵', '고추장 소스', '대파'], pool: ['떡', '어묵', '고추장 소스', '대파', '김', '단무지', '계란'] }, { name: '김밥', icon: '🍙', steps: ['김', '밥', '단무지', '계란', '말기'], pool: ['김', '밥', '단무지', '계란', '말기', '떡', '어묵'] }, { name: '라면', icon: '🍜', steps: ['물', '면', '스프', '계란'], pool: ['물', '면', '스프', '계란', '대파', '떡'] }]),
   chicken: () => { const y = Math.random() < 0.5; return { name: y ? '양념 치킨' : '후라이드 치킨', icon: '🍗', steps: y ? ['반죽 입히기', '튀기기', '양념 버무리기', '포장'] : ['반죽 입히기', '튀기기', '기름 빼기', '포장'], pool: ['반죽 입히기', '튀기기', '양념 버무리기', '기름 빼기', '포장', '치킨무'] }; },
@@ -172,6 +173,18 @@ export class JobGame {
   task() {
     const sh = this.shift; if (!sh || !sh.queue.length) return;
     const r = sh.queue[0];
+    // 커피: 직접 원두 갈고 · 탬핑 · 샷 추출 · 우유 스팀
+    if (r.shot) {
+      return espressoGame({ name: r.name, icon: r.icon, latte: r.latte, iced: r.iced, audio: this.c.audio }, (sc) => {
+        if (sh !== this.shift) return;
+        sh.queue.shift(); sh.done++;
+        const good = sc >= 0.85;
+        if (sc < 0.5) sh.mistakes++;
+        sh.score += sc < 0.5 ? -0.08 : good ? 0.06 : 0.02;
+        toast(good ? `✨ 완벽한 ${r.name}! 손님: "커피 진짜 맛있어요"` : sc < 0.5 ? `😓 ${r.name} · 손님 표정이 별로예요` : `✅ ${r.name} 완성`, sc < 0.5 ? 'bad' : 'good', 2200);
+        if (good && Math.random() < 0.3) { sh.tips = (sh.tips || 0) + 1000; toast('💵 손님이 팁 1,000원을 줬어요', 'good'); }
+      });
+    }
     const pool = shuffle([...new Set([...r.steps, ...r.pool])]).slice(0, Math.max(r.steps.length + 2, 6));
     for (const st of r.steps) if (!pool.includes(st)) pool[Math.floor(Math.random() * pool.length)] = st;
     const mg = $('mg'); mg.classList.remove('hidden', 'soft');

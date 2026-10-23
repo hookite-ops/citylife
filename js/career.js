@@ -5,6 +5,7 @@ import { seeded } from './geo.js';
 import { floorLabel, tenantMap } from './bplan.js';
 import { OVERRIDES, unitKey, TYPES, SHOP_NAMES } from './tenants.js';
 import * as ST from './state.js';
+import { espressoGame, hoseGame } from './minigames.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -314,7 +315,7 @@ export class Career {
       pharmacist: [{ type: 'rx', icon: '💊', name: '처방전 조제' }],
       stylist: [{ type: 'steps', icon: '✂️', name: '손님 커트', steps: ['상담', '샴푸', '커트', '드라이', '스타일링'] }, { type: 'steps', icon: '🌀', name: '손님 펌', steps: ['상담', '롯드 말기', '펌 약', '중화제', '드라이'] }],
       chef: [{ type: 'steps', icon: '🍲', name: '김치찌개 조리', steps: ['김치 볶기', '고기', '물', '두부', '대파'] }, { type: 'steps', icon: '🥘', name: '제육볶음 조리', steps: ['고기 볶기', '양념', '양파', '대파', '담기'] }],
-      barista: [{ type: 'steps', icon: '☕', name: '라떼 아트', steps: ['샷 추출', '우유 스팀', '붓기', '하트 그리기'] }, { type: 'steps', icon: '🧊', name: '아이스 아메리카노', steps: ['얼음', '샷 추출', '물', '뚜껑'] }],
+      barista: [{ type: 'brew', icon: '☕', name: '카페라떼 (라떼 아트)', latte: true }, { type: 'brew', icon: '🧊', name: '아이스 아메리카노', iced: true }, { type: 'brew', icon: '☕', name: '에스프레소 더블샷' }],
       baker: [{ type: 'steps', icon: '🥐', name: '크루아상', steps: ['반죽', '버터 접기', '성형', '발효', '굽기'] }, { type: 'steps', icon: '🍞', name: '식빵', steps: ['반죽', '1차 발효', '성형', '2차 발효', '굽기'] }],
     }[kind];
     return { ...pick(T) };
@@ -322,10 +323,24 @@ export class Career {
   doTask() {
     const d = this.day, t = d.q[0]; if (!t) return;
     const finish = (good) => { d.q.shift(); d.done++; if (good) d.good++; this.job.perf += good ? 1 : -0.5; toast(good ? `✅ ${t.name} 완료! 잘했어요` : `😓 ${t.name} 끝냈지만 실수가 있었어요`, good ? 'good' : 'bad', 2000); this.c.passTime(20, 'work'); };
+    if (t.type === 'brew') return espressoGame({ name: t.name, icon: t.icon, latte: t.latte, iced: t.iced, audio: this.c.audio }, (sc) => finish(sc >= 0.75));
     if (t.type === 'dispatch') {
       const fire = t.ev.kind === 'fire';
-      const st = { icon: fire ? '🚒' : '🚓', name: t.name, steps: fire ? ['출동', '호스 연결', '인명 수색', '물 뿌리기', '잔불 정리'] : ['출동', '라바콘 설치', '부상자 확인', '견인차 요청', '도로 정리'] };
-      return this.steps(st, (good) => { this.c.life.resolve(t.ev, good); this.job.perf += good ? 1.5 : 0; finish(good); this.c.passTime(40, 'work'); });
+      // 현장 처리: 소방은 호스로 직접 불 끄기 · 경찰은 현장 정리 순서
+      const onSite = (cb) => fire
+        ? hoseGame({ title: `🚒 ${t.ev.where} 화재 진압`, fires: 4, audio: this.c.audio }, (sc) => cb(sc >= 0.7))
+        : this.steps({ icon: '🚓', name: `${t.ev.where} 사고 현장`, steps: ['라바콘 설치', '부상자 확인', '구급차 요청', '견인차 요청', '도로 정리'] }, cb);
+      const after = (good, drove) => { this.c.life.resolve(t.ev, good); this.job.perf += good ? (drove ? 2 : 1.5) : 0; finish(good); this.c.passTime(drove ? 10 : 40, 'work'); };
+      if (!this.c.dispatchDrive) return onSite((g) => after(g, false));
+      return openSheet({
+        icon: '🚨', title: t.name, sub: `${fire ? '화재' : '교통사고'} 신고 · ${t.ev.where}`,
+        html: row({ icon: fire ? '🚒' : '🚓', title: fire ? '소방차 타고 출동' : '순찰차 타고 출동', desc: '사이렌 켜고 직접 운전해서 현장으로 · 평가 더 좋아요', btn: '출동!', action: 'drive', btnClass: 'green' }) +
+          row({ icon: '📻', title: '무전으로 지휘', desc: '다른 팀이 출동하고 여기서 지휘해요', btn: '지휘', action: 'radio' }),
+        bind: (b) => bindActs(b, {
+          drive: () => { closeSheet(); this.c.dispatchDrive(t.ev, fire ? 'fire' : 'police', (back) => onSite((g) => { after(g, true); back(g); })); },
+          radio: () => { closeSheet(); onSite((g) => after(g, false)); },
+        }),
+      });
     }
     if (t.type === 'meeting') return this.quiz('🗣️ 팀 회의', [[`이번 분기 ${pick(['매출', '신제품', '마케팅'])} 회의 · 내 의견은?`, ['데이터를 근거로 개선안을 낸다', '조용히 졸기', '딴소리'], 0]], finish);
     if (t.type === 'approve') return this.approveGame(finish);

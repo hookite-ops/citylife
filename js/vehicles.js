@@ -43,9 +43,9 @@ export function carGeometry(type) {
     const body = new GB(), det = new GB(), lights = new GB();
     body.cbox(0, 1.75, 0, 2.5, 2.7, 11);
     det.setColor(0x10161c);
-    det.cbox(1.26, 2.05, -0.4, 0.04, 1.15, 8.6); det.cbox(-1.26, 2.05, 0, 0.04, 1.15, 9.6);
+    det.cbox(-1.26, 2.05, -0.4, 0.04, 1.15, 8.6); det.cbox(1.26, 2.05, 0, 0.04, 1.15, 9.6);
     det.cbox(0, 2.0, 5.51, 2.2, 1.5, 0.04); det.cbox(0, 2.3, -5.51, 2.0, 0.9, 0.04);
-    det.setColor(0x2a2e33); det.cbox(1.27, 1.45, 4.3, 0.04, 2.3, 1.1); det.cbox(1.27, 1.45, -0.6, 0.04, 2.3, 1.1);   // 문
+    det.setColor(0x2a2e33); det.cbox(-1.27, 1.45, 4.3, 0.04, 2.3, 1.1); det.cbox(-1.27, 1.45, -0.6, 0.04, 2.3, 1.1);   // 문 (오른쪽 · 인도 쪽)
     det.setColor(0xf2f2ee); det.cbox(0, 3.12, 0, 2.3, 0.06, 10.6);
     det.setColor(0x222222); det.cbox(0, 0.42, 0, 2.3, 0.3, 10.6);
     const wg = wheelGeo(0.5, 0.32);
@@ -188,7 +188,11 @@ export class Traffic {
   }
 
   setCount(n) {
-    while (this.cars.length > n) { const c = this.cars.pop(); this.group.remove(c.mesh.root); }
+    while (this.cars.length > n) {
+      const i = this.cars.findLastIndex(c => !c.script);   // 내가 탄 버스는 남겨요
+      if (i < 0) break;
+      const [c] = this.cars.splice(i, 1); this.group.remove(c.mesh.root);
+    }
     let guard = 0;
     while (this.cars.length < n && guard++ < 500) this.spawn();
   }
@@ -233,6 +237,12 @@ export class Traffic {
   plan(car) {
     const ja = car.a + car.d[0], jb = car.b + car.d[1];
     const d = car.d, r = right(d), l = [-r[0], -r[1]];
+    const sn = car.script?.next();
+    if (sn && hasEdge(ja, jb, sn)) {
+      car.next = sn;
+      car.turnType = sn[0] === d[0] && sn[1] === d[1] ? 's' : (sn[0] === r[0] && sn[1] === r[1]) ? 'r' : 'l';
+      return;
+    }
     const opts = [];
     if (hasEdge(ja, jb, d)) opts.push(d, d);
     if (car.lane === 1 && hasEdge(ja, jb, l)) opts.push(l);
@@ -273,7 +283,7 @@ export class Traffic {
     if (this.farT > 0.5 && this.focus) {
       this.farT = 0;
       let n = 0;
-      for (const c of cars.slice()) if (c.pos.distanceTo(this.focus) > 560) { this.respawn(c, camPos || this.focus); if (++n >= 3) break; }
+      for (const c of cars.slice()) if (!c.script && c.pos.distanceTo(this.focus) > 560) { this.respawn(c, camPos || this.focus); if (++n >= 3) break; }
     }
     // 1) 앞차/장애물 감지
     for (const c of cars) {
@@ -293,7 +303,7 @@ export class Traffic {
       for (const o of cars) if (o !== c) check(o.pos.x, o.pos.z, o.len, o);
       for (const o of this.obstacles) check(o.x, o.z, o.len, 'obstacle');
       if (playerCar) check(playerCar.pos.x, playerCar.pos.z, 4.5, 'player');
-      else if (playerPos && !this.city.isOnBlock(playerPos.x, playerPos.z)) check(playerPos.x, playerPos.z, 0.6, 'player');
+      else if (playerPos && !this.ignorePlayer && !this.city.isOnBlock(playerPos.x, playerPos.z)) check(playerPos.x, playerPos.z, 0.6, 'player');
       c.gap = best;
     }
     for (const c of cars) {
@@ -316,6 +326,7 @@ export class Traffic {
       } else {
         target = c.turnType === 's' ? c.maxSpeed : 6;
       }
+      if (c.script) target = Math.min(target, c.script.limit(c, dt));
       // 앞차 간격 유지
       if (c.gap < 1e8) {
         const safe = Math.max(0, (c.gap - 2.2)) * 1.1;
@@ -335,6 +346,7 @@ export class Traffic {
         if (c.t >= 1) {
           c.a = c.ja; c.b = c.jb; c.d = c.next; c.u = ROAD / 2 + (c.t - 1) * c.bezLen; c.state = 'straight';
           c.L = segLen(c.a, c.b, c.d);
+          c.script?.onEdge();
           this.plan(c);
           c.pos.copy(this.lanePos(c.a, c.b, c.d, c.lane, c.u));
           c.heading = Math.atan2(c.d[0], c.d[1]);
@@ -348,7 +360,7 @@ export class Traffic {
       // 막힘 감시: 오래 서 있으면 시야 밖에서 재배치
       c.stuck = c.speed < 0.1 ? c.stuck + dt : 0;
       const dCam = camPos ? c.pos.distanceTo(camPos) : 0;
-      if (c.stuck > 25 && dCam > 70) { this.respawn(c, camPos); }
+      if (c.stuck > 25 && dCam > 70 && !c.script) { this.respawn(c, camPos); }
       const root = c.mesh.root;
       root.position.copy(c.pos);
       root.rotation.y = c.heading;

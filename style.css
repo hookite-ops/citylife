@@ -72,6 +72,8 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; }
 #speedo { position: absolute; left: 50%; bottom: calc(14px + var(--sa-b)); transform: translateX(-50%); background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 4px 14px; display: flex; align-items: baseline; gap: 4px; pointer-events: none; }
 #kmh { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
 #speedo span { font-size: 11px; color: var(--tx2); }
+#speedo.over { border-color: #ff4d4d; box-shadow: 0 0 0 2px rgba(255,77,77,.35); }
+#speedo.over b { color: #ff6b6b; }
 
 #joy { position: absolute; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.06); left: 110px; top: 75%; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 #joy.active { opacity: 1; }
