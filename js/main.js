@@ -1907,9 +1907,15 @@ function sleepSheet(bed) {
   const fmt = (t) => { const m = t % 1440; return `${Math.floor(m / 60) < 12 ? '오전' : '오후'} ${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')}`; };
   const dur = (t) => { const m = t - S.minutes; return `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분`; };
   const job = S.mart?.hired ? martGame.shiftStatus() : null;
+  // 13시간 안에 울리는 아침 알람만 · 낮이면 몇 시간 뒤 알람
+  const alarmTimes = () => {
+    let ts = alarms.map(a => nextAt(a)).filter(t => t - S.minutes <= 13 * 60 && t - S.minutes >= 60);
+    if (ts.length < 2) for (const hh of [3, 5, 7]) ts.push(Math.ceil((S.minutes + hh * 60) / 30) * 30);
+    return [...new Set(ts)].sort((a, b) => a - b).slice(0, 5);
+  };
   const render = () => `<p class="note">지금 ${ST.clock(S).text} · 에너지 <b>${Math.round(S.energy)}</b> · 배고픔 <b>${Math.round(S.hunger)}</b>${S.hunger < 25 ? '<br><b style="color:var(--warn)">배가 고프면 자다가 깰 수 있어요</b>' : ''}${job && !job.canClockIn ? `<br>🧑‍💼 ${job.msg}` : ''}</p>
       <div class="row"><div class="ic">${lightOff ? '🌑' : '💡'}</div><div class="info"><b>${lightOff ? '불 끄고 자기' : '불 켜고 자기'}</b><span>${lightOff ? '깊게 잘 수 있어요' : '잠이 얕아져요'}</span></div><button class="btn gray" data-act="light">바꾸기</button></div>` +
-    alarms.map(a => { const t = nextAt(a); return row({ icon: '⏰', title: `알람 ${fmt(t)}`, desc: dur(t) + ' 자요', btn: '자기', action: 'alarm:' + t }); }).join('') +
+    alarmTimes().map(t => row({ icon: '⏰', title: `알람 ${fmt(t)}`, desc: dur(t) + ' 자요', btn: '자기', action: 'alarm:' + t })).join('') +
     row({ icon: '😴', title: '알람 없이 푹 자기', desc: '에너지가 다 차면 저절로 깨요 (최대 11시간)', btn: '자기', action: 'free' }) +
     row({ icon: '💤', title: '30분 낮잠', desc: '잠깐 눈 붙이기', btn: '자기', action: 'nap:30' }) +
     row({ icon: '💤', title: '2시간 낮잠', desc: '오후에 충전', btn: '자기', action: 'nap:120' });
