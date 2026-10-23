@@ -263,9 +263,10 @@ export class RealEstate {
       if (!c.rent && c.kind !== 'shop') continue;
       if (day < c.nextDue) continue;
       c.nextDue += MONTH;
-      const due = (c.rent || 0) + (c.arrears || 0);
+      const rent = Math.round((c.rent || 0) * (S.mayor?.pledge === 'rent' && c.kind === 'home' ? 0.9 : 1) / 100) * 100;
+      const due = rent + (c.arrears || 0);
       if (!c.rent) continue;
-      if (S.money >= due) { S.money -= due; if (c.arrears) toast(`🏦 밀린 월세까지 ${won(due)} 냈어요`, 'good'); else toast(`🏦 ${c.name} 월세 ${won(c.rent)} 자동이체`, '', 3000); c.arrears = 0; c.missed = 0; this.addCredit(3); }
+      if (S.money >= due) { S.money -= due; if (c.arrears) toast(`🏦 밀린 월세까지 ${won(due)} 냈어요`, 'good'); else toast(`🏦 ${c.name} 월세 ${won(rent)} 자동이체${rent < c.rent ? ' (시 월세 지원 10%)' : ''}`, '', 3000); c.arrears = 0; c.missed = 0; this.addCredit(3); }
       else {
         c.arrears = due; c.missed = (c.missed || 0) + 1; this.addCredit(-40);
         toast(`⚠️ 잔액 부족! ${c.name} 월세 ${won(c.rent)} 연체 (${c.missed}번째) · 신용점수 하락`, 'bad', 5000);
