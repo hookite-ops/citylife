@@ -347,6 +347,7 @@ export class RealEstate {
     const S = this.S;
     if (S.money < cost) { toast(`💸 인테리어 비용 ${won(cost)}이 모자라요`, 'bad'); return; }
     S.money -= cost;
+    S.shopsOpened = (S.shopsOpened || 0) + 1;
     S.customSlots = S.customSlots || {};
     let sl = slot;
     if (sl == null) {

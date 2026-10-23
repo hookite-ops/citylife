@@ -270,6 +270,7 @@ export class Transit {
     const left = Math.round(Math.hypot(dest.x - p.x, dest.z - p.z));
     if (!dest.station && left > 15) { S.waypoint = { x: dest.x, z: dest.z, name: dest.name }; toast(`🚏 ${where}에서 내렸어요 · ${dest.name}까지 걸어서 ${left}m (길안내 켰어요)`, 'good', 3600); }
     else toast(`🚏 ${where}에 도착했어요`, 'good');
+    S.rides = (S.rides || 0) + 1;
     this.c.missions?.event?.('transit');
     this.c.persist();
   }

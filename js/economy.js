@@ -279,6 +279,7 @@ export class Economy {
         const p = st.p[sel], amt = p * n, f = fee(amt), gain = (p - h.avg) * n;
         S.money += amt - f; h.n -= n; if (!h.n) delete st.hold[sel];
         if (gain > 0) S.totalEarned = (S.totalEarned || 0) + gain;
+        S.stockGain = (S.stockGain || 0) + gain;
         this.c.audio.coin?.(); toast(`📉 ${n}주 매도 · ${won(amt - f)} 입금 (${gain >= 0 ? '수익' : '손실'} ${won(Math.abs(gain))})`, gain >= 0 ? 'good' : 'bad', 3200);
         this.c.flash?.(gain >= 0); this.c.persist(); rerender(sel);
       },

@@ -406,6 +406,7 @@ export class ShopGame {
   bought(s, v) {
     const S = this.S;
     s.service = v; s.servicePaid = true;
+    if (v.pet) { this.c.petVet?.(v); s.service = null; s.servicePaid = false; return; }
     this.c.missions?.event?.('shop');
     if (v.pass) { S.passes = S.passes || {}; S.passes[s.type] = S.minutes + v.pass * 1440; toast(`🗓️ ${v.name} 등록 완료!`, 'good'); return; }
     if (v.cert) { S.courses = S.courses || {}; S.courses[v.cert] = { name: v.name, left: v.days, total: v.days, shop: s.t.name }; toast(`📚 ${v.name} 수강 등록! 수업 ${v.days}번 → 시험`, 'good', 3600); this.c.persist(); return; }

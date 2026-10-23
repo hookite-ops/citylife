@@ -414,6 +414,7 @@ export class LivingCity {
   }
   report(ev) {
     ev.reported = true;
+    this.S.reports = (this.S.reports || 0) + 1;
     this.S.mood = ST.clamp(this.S.mood + 4);
     this.c.missions?.addXp?.(15);
     toast(ev.kind === 'fire' ? '📞 "119입니다. 바로 출동하겠습니다! 안전한 곳으로 대피하세요"' : '📞 "112입니다. 경찰과 구급차 보내드릴게요"', 'good', 3800);

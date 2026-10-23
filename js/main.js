@@ -23,6 +23,9 @@ import { Weather, forecast } from './weather.js';
 import { Transit, playRide } from './transit.js';
 import { LivingCity } from './living.js';
 import { Economy } from './economy.js';
+import { Pets } from './pets.js';
+import { PhoneCamera } from './camera.js';
+import { Achieve } from './achieve.js';
 import { OUTFITS, OUTFIT_CATS, SKIN_TONES, ensureLook, wear, swatch } from './outfits.js';
 import { P as PRODUCT, DISHES, INGREDIENTS, SHIFTS } from './products.js';
 import { runMeal, pickMealSheet } from './meal.js';
@@ -90,7 +93,7 @@ let room = null;          // 지금 들어가 있는 실내 (interior | mart | s
 let school, schoolGame, schoolEntrance = null;
 let martEntrance = null;  // 들어온 편의점 입구
 let missions, weather, talkingPed = null;
-let transit, life, economy;
+let transit, life, economy, pets, phoneCam, achieve;
 // 성능 자동 조절: 프레임이 느리면 렌더링 해상도를 낮춤
 let dynScale = 1, perfT = 0, perfFrames = 0, perfWarned = false;
 let site = null, homeSite = null, martSite = null, schoolSite = null, statSite = null, stat, statGame, statEntrance = null;   // 실내가 붙어 있는 건물
@@ -199,6 +202,9 @@ async function boot() {
     refreshSpec: (sp) => city.refreshSpec(sp), setSign: (i, n, c) => setCustomSlot(i, n, c),
   });
   economy = new Economy({ get S() { return S; }, audio, persist: () => persist(), flash: (g) => flashMoney(g), life: () => life, livingContract: () => (S.contracts || []).find(c => c.living), closePhone: () => { if (!$('phone').classList.contains('hidden')) closePhone(); }, credit: (d) => realEstate.addCredit(d) });
+  pets = new Pets({ get S() { return S; }, scene, human, player, audio, missions, persist: () => persist(), mode: () => mode, inCar: () => inCar, passTime: (m, md) => ST.passTime(S, m, md || 'idle'), checkout: (t, o, f) => checkout(t, o, f), groundY: (x, z) => city.groundY(x, z) });
+  phoneCam = new PhoneCamera({ get S() { return S; }, cam, player, audio, missions, persist: () => persist(), render: () => { renderer.render(scene, camera); return renderer.domElement; }, setHud: (on) => $('hud').classList.toggle('cam', !on), season: () => life.season(), closePhone: () => closePhone(), indoor: () => mode !== 'city', withPet: () => pets.near(6) });
+  achieve = new Achieve({ get S() { return S; }, audio, missions, assets: () => totalAssets() });
   jobGame = new JobGame({ get S() { return S; }, audio, myShop: (bid, n, k) => realEstate.myShopOf(bid, n, k), earn: (a, r) => earn(a, r), persist: () => persist(), hoursOf: (t) => BTYPES[t]?.hours || [9, 21] });
   shopGame = new ShopGame({
     jobs: jobGame, get career() { return career; },
@@ -210,7 +216,7 @@ async function boot() {
     martGoods: () => PRODUCTS.filter(p => p.price),
     applyGoods: (key, g, n) => applyGoods(key, g, n),
     nearestSeat: (z) => nearestSeat(z), seat: (spot) => seatPlayer(spot),
-    realty: (s) => realEstate.office(s.t.name), bank: () => economy.counter(() => atmSheet(walletCtx(), { name: '은행 ATM', fee: 0 })), vacantInfo: (unit, b) => vacantInfo(unit, b),
+    realty: (s) => realEstate.office(s.t.name), bank: () => economy.counter(() => atmSheet(walletCtx(), { name: '은행 ATM', fee: 0 })), petShop: () => pets.shopSheet(), petVet: (v) => pets.vet(v), vacantInfo: (unit, b) => vacantInfo(unit, b),
   });
   controls = new Controls(canvas, $('joy'), $('knob'));
   makeBeacon();
@@ -422,7 +428,8 @@ function frame(now) {
     economy?.tick(dt * MIN_PER_SEC * (shift ? 2 : 1), { home: mode === 'home', light: interior?.lightOn !== false, cooking: !!cooking?.active, temp: life ? life.temp() : 15 });
     needWarnings(before);
   }
-  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); schoolGame.dailyCheck(); jobGame?.dailyCheck(); realEstate?.dailyCheck(); career?.dailyCheck(); life?.dailyCheck(); economy?.dailyCheck(); economy?.updateStocks(); if (mode === 'school') schoolGame.refresh(schoolEntrance.school); }
+  checkT -= dt; if (checkT <= 0) { checkT = 2; martGame.dailyCheck(); schoolGame.dailyCheck(); jobGame?.dailyCheck(); realEstate?.dailyCheck(); career?.dailyCheck(); life?.dailyCheck(); economy?.dailyCheck(); pets?.dailyCheck(); economy?.updateStocks(); if (mode === 'school') schoolGame.refresh(schoolEntrance.school); }
+  pets?.update(paused ? 0 : dt); achieve?.update(dt);
   const hours = ST.hour(S);
   if (mode === 'city') {
     const focus = inCar && pcar ? pcar.pos : player.pos;
@@ -839,7 +846,7 @@ function updateCityInteract() {
   if (best) { setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best)); return; }
   const bdr = city.nearestBDoor(p.x, p.z, 1.7);
   if (bdr) { setAct(bldg.doorLabel(bdr), () => bldg.tryEnter(bdr)); return; }
-  const la = life.action(p) || transit.action(p);
+  const la = life.action(p) || transit.action(p) || pets.action();
   if (la) { setAct(la.label, la.fn, la.green); return; }
   const ped = peds.nearest(p, 2.2);
   if (ped) { setAct(`💬 ${ped.name}에게 말 걸기`, () => { talkingPed = ped; ped.talk = 999; missions.talkSheet(ped, ST.hour(S) % 24); }); return; }
@@ -1735,6 +1742,7 @@ function updateRoomCamera(dt) {
   camera.lookAt(target);
 }
 function updateHomeInteract() {
+  const pa = pets?.action(); if (pa) return setAct(pa.label, pa.fn, true);
   const n = interior.nearest(player.pos);
   if (n === 'door') return setAct('🚪 밖으로 나가기', exitHome);
   if (n === 'kitchen') return setAct('🍳 요리하기', () => cooking.menu());
@@ -2058,7 +2066,7 @@ function openPhone(app) {
   const apps = [
     ['missions', '🎯', '미션', '#d62828'], ['fashion', '🛍️', '패션몰', '#c2185b'], ['map', '🗺️', '지도·택시', '#2a9d8f'], ['bank', '💳', '은행', '#264653'], ['me', '🧑', '내 정보', '#e76f51'], ['goals', '🏆', '인생 목표', '#f4a261'],
     ['bag', '🎒', '가방', '#8d6e63'], ['car', '🚗', '내 차', '#3d5a80'], ['delivery', '🛵', '배달', '#e9c46a'], ['job', '🧑‍💼', '알바', '#1f8a4c'], ['school', '🎓', '학교', '#5a3a8a'],
-    ['work', '💼', '한빛잡', '#0d47a1'], ['estate', '🏠', '내 부동산', '#6d4c41'], ['news', '📰', '한빛뉴스', '#37474f'], ['stock', '📈', '한빛증권', '#c62828'],
+    ['work', '💼', '한빛잡', '#0d47a1'], ['estate', '🏠', '내 부동산', '#6d4c41'], ['news', '📰', '한빛뉴스', '#37474f'], ['stock', '📈', '한빛증권', '#c62828'], ['camera', '📷', '카메라', '#455a64'], ['album', '🖼️', '앨범', '#8e24aa'],
     ['settings', '⚙️', '설정', '#6c757d'],
   ];
   phScreen.innerHTML = `<div class="ph-widget"><div style="font-size:13px;opacity:.8">${ST.day(S)}일차 · ${DAYNAMES[(ST.day(S) - 1) % 7]}</div><div class="big">${ST.clock(S).text}</div><div style="font-size:13px;opacity:.8">잔액 ${won(S.money)}</div></div>
@@ -2100,6 +2108,8 @@ function phoneApp(id) {
     draw('home');
     return;
   }
+  if (id === 'camera') { closePhone(); phoneCam.open(); return; }
+  if (id === 'album') { const draw = () => phoneCam.albumHtml(phScreen, draw); draw(); return; }
   if (id === 'stock') {
     const draw = (sel) => { phScreen.innerHTML = economy.stockHtml(sel); economy.bindStock(phScreen, draw, sel); };
     draw(null);
@@ -2116,7 +2126,7 @@ function phoneApp(id) {
     return;
   }
   if (id === 'goals') {
-    phScreen.innerHTML = `<div class="ph-title">🏆 인생 목표</div>` + GOALS.map(g => { const d = S.goalsDone?.includes(g.id); return `<div class="row" style="${d ? 'opacity:.55' : ''}"><div class="ic">${d ? '✅' : '⬜'}</div><div class="info"><b>${g.text}</b><span>${g.hint}</span></div></div>`; }).join('');
+    phScreen.innerHTML = `<div class="ph-title">🏆 인생 목표</div>` + achieve.html() + `<div class="ph-sub" style="margin:14px 0 6px;font-weight:700">📝 첫걸음 목표</div>` + GOALS.map(g => { const d = S.goalsDone?.includes(g.id); return `<div class="row" style="${d ? 'opacity:.55' : ''}"><div class="ic">${d ? '✅' : '⬜'}</div><div class="info"><b>${g.text}</b><span>${g.hint}</span></div></div>`; }).join('');
     return;
   }
   if (id === 'car') {
@@ -2224,6 +2234,17 @@ async function taxi(e) {
     flashMoney(false); persist();
   } }, () => { paid = true; });
   if (S.waypoint && S.waypoint.name === e.name) S.waypoint = null;
+  S.rides = (S.rides || 0) + 1;
+}
+// 총 자산 (현금 + 예금 + 주식 + 부동산)
+function totalAssets() {
+  let a = (S.money || 0) + (S.cash || 0);
+  for (const p of S.bank?.products || []) a += p.principal;
+  if (S.stocks) for (const [id, h] of Object.entries(S.stocks.hold || {})) a += h.n * (S.stocks.p[id] || 0);
+  for (const c of S.contracts || []) a += c.deal === 'buy' ? (c.price || 0) : (c.deposit || 0);
+  for (const bid of S.ownedBldgs || []) { const b = (S.bldgPrices || {})[bid]; if (b) a += b; }
+  for (const L of S.loans || []) a -= L.principal;
+  return a;
 }
 // 순간이동 (택시·버스·지하철 도착)
 function teleportTo(x, z, heading) {
@@ -2277,4 +2298,4 @@ boot().catch(err => { console.error(err); window.__bootFailed = true; window.__b
 
 // 디버그/테스트용
 window.__game = { get missions() { return missions; }, get peds() { return peds; }, get stat() { return stat; }, get statGame() { return statGame; }, enterStat: () => walkInto(city.sites.find(s => s.kind === 'stat')), get school() { return school; }, get schoolGame() { return schoolGame; }, enterSchool: (t) => walkInto(city.sites.find(s => s.school === t)), walkInto, playerWorld, get site() { return site; }, get mode() { return mode; },
-  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), get bldg() { return bldg; }, get career() { return career; }, get transit() { return transit; }, get life() { return life; }, get weather() { return weather; }, get economy() { return economy; }, teleportTo, get realEstate() { return realEstate; }, get jobGame() { return jobGame; }, tenantMap: (B) => tenantMapFn(B), get shopGame() { return shopGame; }, get room() { return room; }, eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
+  renderer, scene, camera, get mart() { return mart; }, get martGame() { return martGame; }, get cooking() { return cooking; }, enterMart: () => walkInto(city.sites.find(s => s.kind === 'mart')), get bldg() { return bldg; }, get career() { return career; }, get transit() { return transit; }, get life() { return life; }, get weather() { return weather; }, get economy() { return economy; }, get pets() { return pets; }, get phoneCam() { return phoneCam; }, get achieve() { return achieve; }, teleportTo, get realEstate() { return realEstate; }, get jobGame() { return jobGame; }, tenantMap: (B) => tenantMapFn(B), get shopGame() { return shopGame; }, get room() { return room; }, eatFood, foodInfo, sleepSheet, get interior() { return interior; }, doSleep, useFurniture, taxi, openPhone, get traffic() { return traffic; }, controls: () => controls, get S() { return S; }, player, cam, get city() { return city; }, enterHome, exitHome, startEdit, endEdit, enterCar, exitCar, get pcar() { return pcar; }, setQuality, openPlace: (id) => openPlace(city.entrances.find(e => e.id === id)), newDelivery, spawnPlayerCar };
