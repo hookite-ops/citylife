@@ -157,7 +157,7 @@ export class BldgGame {
     if (this.view) { this.clearNpcs(); this.view.dispose(); this.c.shop?.()?.onExitBuilding?.(); }
     this.n = n; this.curUnit = null;
     const f = B.floorOf(n);
-    const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit });
+    const view = new FloorView(B, n, this.lifts, { myHome: this.S.homeUnit, company: this.c.company });
     this.view = view;
     // 아래층 덩어리 (창밖으로 내려다볼 때)
     const base = B.kind === 'tower' && n >= 4 ? B.spec.y0 : B.spec.y0;
@@ -197,6 +197,7 @@ export class BldgGame {
     this.riding = null;
     this.c.shop?.()?.onExitBuilding?.();
     if (this.c.shop?.()?.c.jobs?.onShift) this.c.shop().c.jobs.clockOut(true);
+    const cr = this.c.career?.(); if (cr?.working && this.S.career && ST.hour(this.S) % 24 < this.S.career.end) { toast('🏃 일하다 말고 나왔어요… (조퇴 처리)', 'bad'); this.S.career.perf -= 1; cr.clockOut(); } else if (cr?.working) cr.clockOut();
     this.c.leaveSite();
     this.c.city.setHidden([]);
     if (this.view) { this.view.dispose(); this.view = null; }
@@ -261,6 +262,7 @@ export class BldgGame {
     const v = this.view, P = this.c.player.pos;
     const z = v.zoneAt(P);
     if (!z) return null;
+    const ca = this.c.career?.()?.action(z, this); if (ca) return ca;
     const shop = this.c.shop?.();
     if (z.unit && shop) { const a = shop.action(z, this); if (a) return a; }
     const S = this.S, B = this.B;

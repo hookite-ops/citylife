@@ -617,6 +617,27 @@ const FAM = {
     u.zone('class', -w / 2 + 0.8, 2.2, w / 2 - 0.8, d - 0.8, { yoga: true });
     u.counterAt(w / 2 - 1.0, 1.2, -1, 0, { w: 1.2 }); counterZone(u, w / 2 - 1.0, 1.2, -1, 0, 'reception', 1.2);
   },
+  police(u) {
+    const w = u.w, d = u.d;
+    u.counterAt(0, 2.0, 0, -1, { w: Math.min(3, w - 1.5), c: [0.85, 0.87, 0.92], top: [0.15, 0.2, 0.35] }); counterZone(u, 0, 2.0, 0, -1, 'counter', 2.4);
+    for (let a = -w / 2 + 1.2; a < w / 2 - 1; a += 1.8) { FUR.desk(u.k, ...u.p(a, 3.8), u.F.face(0, -1), { w: 1.4 }); u.spot('staff', a, 4.45, 0, -1); }
+    const cw = Math.min(3, w / 2 - 0.5);
+    for (let a = w / 2 - cw; a <= w / 2 - 0.1; a += 0.18) u.box(a - 0.02, 0, d - 2.2, a + 0.02, 2.2, d - 2.16, [0.3, 0.32, 0.35], u.k.metal);
+    u.block(w / 2 - cw, d - 2.25, w / 2, d);
+    u.sign(0, 2.3, d - 0.07, 1.8, 0.45, 0, -1, { text: '👮 한빛지구대', sub: '112 · 365일 24시간', bg: '#1a3a7a', fg: '#fff' }, 96);
+    FUR.shelf(u.k, ...u.p(-w / 2 + 0.3, d - 1.5), u.F.face(1, 0), { w: 2, palette: [[0.2, 0.25, 0.4], [0.9, 0.9, 0.9]] });
+  },
+  fire(u) {
+    const w = u.w, d = u.d;
+    u.k.floor('concrete', ...minmax(u.p(-w / 2, 0), u.p(w / 2, d)));
+    FUR.car(u.k, ...u.p(-w / 4, d / 2 + 0.5), u.F.face(0, -1), { c: [0.8, 0.08, 0.06] });
+    u.box(-w / 4 - 0.9, 1.35, d / 2 - 1.5, -w / 4 + 0.9, 1.55, d / 2 + 2.5, [0.85, 0.85, 0.85], u.k.metal);
+    for (let i = 0; i < 4; i++) { const a = w / 2 - 0.5; u.box(a - 0.35, 0, 1.5 + i * 0.9, a + 0.3, 2.0, 2.2 + i * 0.9, [0.85, 0.75, 0.2]); }
+    u.block(w / 2 - 0.9, 1.4, w / 2, 5.0);
+    u.counterAt(w / 4, 1.6, 0, -1, { w: 1.6, c: [0.85, 0.85, 0.85], top: [0.6, 0.1, 0.1] }); counterZone(u, w / 4, 1.6, 0, -1, 'counter', 1.6);
+    u.sign(0, 2.3, d - 0.07, 2.0, 0.45, 0, -1, { text: '🚒 한빛119안전센터', sub: '화재 · 구급 · 구조', bg: '#b71c1c', fg: '#fff' }, 96);
+    u.spot('staff', w / 4, 0.9, 0, 1);
+  },
   office(u) {
     const w = u.w, d = u.d;
     for (let v = 2.0; v < d - 1.0; v += 2.0) for (let a = -w / 2 + 1.2; a < w / 2 - 1.0; a += 1.6) { FUR.desk(u.k, ...u.p(a, v), u.F.face(0, -1), { w: 1.4 }); u.spot('worker', a, v + 0.65, 0, -1); }

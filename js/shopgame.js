@@ -69,7 +69,8 @@ export class ShopGame {
       case 'krroom': return this.karaokeRoom(z, s);
       case 'pcseat': return this.pcSeat(z, s);
       case 'desk': return this.studyDesk(z, s);
-      case 'chair': case 'service': case 'exam': case 'class': case 'equip': case 'play': return this.serviceSpot(z, s);
+      case 'class': if (s.fam === 'academy') { const ca = this.c.career?.classAction(s); if (ca) return ca; } return this.serviceSpot(z, s);
+      case 'chair': case 'service': case 'exam': case 'equip': case 'play': return this.serviceSpot(z, s);
       case 'atm': return { label: '🏧 은행 ATM (영업시간 수수료 없음)', fn: () => this.c.atm?.(0) };
       case 'ticket': return { label: '🎫 번호표 뽑기', fn: () => { s.ticket = 100 + Math.floor(Math.random() * 80); s.wait = 1 + Math.floor(Math.random() * 4); toast(`🎫 ${s.ticket}번 · 앞에 ${s.wait}명 대기 중`); } };
       case 'water': return { label: '💧 물 마시기 (셀프)', fn: () => { this.S.mood = ST.clamp(this.S.mood + 1); toast('💧 시원한 물 한 잔'); } };

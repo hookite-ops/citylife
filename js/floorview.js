@@ -38,6 +38,7 @@ export class FloorView {
     this.doorsGeom(k);
     for (const r of p.rooms) if (r.kind === 'stairs') this.stairs(k, r);
     for (const f of p.feats) this.feature(k, f);
+    if (p.office || p.civicOffice) this.officeFloor(k);
     // ─ 호실 ─
     for (const r of p.rooms) {
       if (r.kind !== 'unit') continue;
@@ -644,6 +645,36 @@ export class FloorView {
     }
   }
 
+  // ─ 회사 층: 책상 줄 · 회의 테이블 · 회사 이름 ─
+  officeFloor(k) {
+    const p = this.plan;
+    const rooms = p.rooms.filter(r => r.kind === 'office');
+    const co = this.opts.company?.(this.B, this.n);
+    let meetRoom = null;
+    for (const r of rooms) {
+      const w = r.x1 - r.x0, d = r.z1 - r.z0;
+      const alongX = w >= d;
+      const len = alongX ? w : d, dep = alongX ? d : w;
+      if (dep < 3.5) continue;
+      if (!meetRoom && len > 10) {
+        meetRoom = r;
+        const mx = alongX ? r.x0 + 3 : (r.x0 + r.x1) / 2, mz = alongX ? (r.z0 + r.z1) / 2 : r.z0 + 3;
+        FUR.table(k, mx, mz, alongX ? Math.PI / 2 : 0, { w: 2.6, d: 1.1, top: [0.3, 0.3, 0.32] });
+        for (let i = -1; i <= 1; i++) for (const sd of [-1, 1]) { const [cx, cz] = alongX ? [mx + sd * 0.8, mz + i * 0.8] : [mx + i * 0.8, mz + sd * 0.8]; FUR.chair(k, cx, cz, alongX ? (sd > 0 ? -Math.PI / 2 : Math.PI / 2) : (sd > 0 ? Math.PI : 0), { c: [0.15, 0.15, 0.18] }); }
+        this.zone('meeting', mx - 2.2, mz - 2.2, mx + 2.2, mz + 2.2, {});
+      }
+      const start = (alongX ? r.x0 : r.z0) + (meetRoom === r ? 6 : 1.5);
+      for (let a = start; a < (alongX ? r.x1 : r.z1) - 1.2; a += 1.6) {
+        for (let b = (alongX ? r.z0 : r.x0) + 1.6; b < (alongX ? r.z1 : r.x1) - 1.4; b += 3.2) {
+          const [x, z] = alongX ? [a, b] : [b, a];
+          FUR.desk(k, x, z, alongX ? 0 : Math.PI / 2, { w: 1.4 });
+          this.zone('odesk', x - 0.8, z - 0.5, x + 0.8, z + 1.2, {});
+          this.npcSpots.push({ kind: 'worker', x: alongX ? x : x + 0.65, z: alongX ? z + 0.65 : z, rot: alongX ? Math.PI : -Math.PI / 2 });
+        }
+      }
+    }
+    if (co) for (const sx of [-8, 8]) k.sign(sx + Math.sign(sx) * 0.2, 2.2, -1.75, 2.6, 0.5, [0, 1], { text: co.name, sub: co.ind, bg: '#1d2a3a', fg: '#ffffff' }, 96);
+  }
   // ─ 충돌: 벽 · 가구 · (닫힌) 게이트 ─
   collide(pos, r) {
     for (let it = 0; it < 2; it++) for (const c of this.colliders) {

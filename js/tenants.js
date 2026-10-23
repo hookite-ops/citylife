@@ -49,6 +49,8 @@ export const TYPES = {
   gym: { label: '헬스장', icon: '🏋️', fam: 'gym', loc: 'UB', minW: 12, hours: [6, 24], cat: 'fit' },
   yoga: { label: '요가·필라테스', icon: '🧘', fam: 'yoga', loc: 'LU', minW: 8, hours: [7, 22], off: [6], cat: 'fit' },
   office: { label: '사무실', icon: '🗂️', fam: 'office', loc: 'LU', minW: 5, hours: [9, 18], off: [5, 6], cat: 'work' },
+  police: { label: '지구대', icon: '👮', fam: 'police', loc: '', minW: 5, hours: [0, 24], cat: 'public' },
+  fire: { label: '119안전센터', icon: '🚒', fam: 'fire', loc: '', minW: 5, hours: [0, 24], cat: 'public' },
 };
 
 // 간판 이름: [이름, 간판색, 업종, 프랜차이즈?]
@@ -77,6 +79,7 @@ export const SHOP_NAMES = [
   ['한빛세무회계', '#263238', 'office'], ['바른법무사', '#3e2723', 'office'], ['미래보험', '#1565c0', 'office'], ['디자인 스튜디오', '#424242', 'office'],
   ['한빛마트 24', '#2e7d32', 'mart', 1], ['책읽는곰', '#5d4037', 'bookstore'], ['밝은안경', '#455a64', 'optician', 1], ['슈퍼키즈랜드', '#ff6f00', 'kidscafe', 1],
   ['한빛동물의료센터', '#4a148c', 'vet'], ['꽃담', '#ad1457', 'flower'], ['크린토피아 세탁', '#0277bd', 'laundry', 1], ['스튜디오 빛', '#212121', 'photo'],
+  ['한빛지구대', '#1a3a7a', 'police'], ['한빛119안전센터', '#b71c1c', 'fire'],
 ];
 export const VACANT_SLOT = SHOP_NAMES.length;   // '임대문의' 간판 칸
 export const LOBBY_SLOT = SHOP_NAMES.length + 1; // 건물 출입구

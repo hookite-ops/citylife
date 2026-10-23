@@ -10,7 +10,9 @@ const TUITION = 1500000;
 const SESSIONS = 8;
 const UNI_SLOTS = [10, 14];                 // 대학 수업 시작 (2시간)
 const PAY = { elem: 135000, middle: 145000, high: 155000 };
-const MAJORS = { edu: { name: '교육학과', desc: '졸업하면 초·중·고 선생님이 될 수 있어요' }, biz: { name: '경영학과', desc: '졸업하면 한빛그룹에서 사원으로 시작하고 승진이 빨라요' } };
+const MAJORS = { edu: { name: '교육학과', desc: '졸업하면 초·중·고 선생님이 될 수 있어요' }, biz: { name: '경영학과', desc: '졸업하면 회사에 사원으로 들어가고 승진이 빨라요' }, med: { name: '의예과', desc: '졸업하면 의사가 될 수 있어요' }, nurse: { name: '간호학과', desc: '졸업하면 간호사가 될 수 있어요' }, pharm: { name: '약학과', desc: '졸업하면 약사가 될 수 있어요' }, police: { name: '경찰행정학과', desc: '경찰 공무원 시험 준비에 좋아요' }, fire: { name: '소방안전학과', desc: '소방 공무원 시험 준비에 좋아요' } };
+const MAJOR_ICON = { edu: '🍎', biz: '💼', med: '🩺', nurse: '💉', pharm: '💊', police: '👮', fire: '🚒' };
+const MAJOR_SUBJ = { edu: '교육학', biz: '경영학', med: '해부학', nurse: '기본간호학', pharm: '약리학', police: '형사법', fire: '소방학' };
 const LESSONS = {
   elem: [['물의 순환', ['증발', '응결', '구름', '비']], ['식물의 한살이', ['씨앗', '싹', '꽃', '열매']], ['덧셈과 뺄셈', ['일의 자리', '받아올림', '십의 자리', '검산']]],
   middle: [['광합성', ['빛 에너지', '이산화탄소 흡수', '포도당 합성', '산소 방출']], ['일차방정식', ['식 세우기', '이항', '계산', '검산']], ['조선 건국', ['위화도 회군', '조선 건국', '한양 천도', '경국대전']]],
@@ -120,7 +122,7 @@ export class SchoolGame {
     openSheet({
       icon: '🎓', title: '한빛대학교 입학', sub: '2학기 과정 · 학기당 수업 8회 + 기말고사',
       html: `<p class="note">평일 <b>오전 10시, 오후 2시</b>에 강의실에서 수업이 있어요 (2시간).<br>8번 들으면 기말고사를 보고, 두 학기를 통과하면 졸업해요.<br>학기 등록금 <b>${won(tuition)}</b> · 돈이 모자라면 학자금 대출을 받을 수 있어요 (번 돈의 20%씩 자동 상환).</p>` +
-        Object.entries(MAJORS).map(([k, m]) => row({ icon: k === 'edu' ? '🍎' : '💼', title: m.name, desc: m.desc, btn: '이 학과로', btnClass: 'green', action: 'pick:' + k })).join(''),
+        Object.entries(MAJORS).map(([k, m]) => row({ icon: MAJOR_ICON[k] || '📘', title: m.name, desc: m.desc, btn: '이 학과로', btnClass: 'green', action: 'pick:' + k })).join(''),
       bind: (b) => bindActs(b, { pick: (k) => this.payTuition(k) }),
     });
   }
@@ -212,7 +214,7 @@ export class SchoolGame {
     this.sitAt(seat);
     U.attended[slot.key] = true;
     if (slot.late) toast('😅 지각했어요 (점수 조금 감점)', 'bad');
-    const subj = U.major === 'edu' ? '교육학' : '경영학';
+    const subj = MAJOR_SUBJ[U.major] || '전공';
     const sb = studyBonus(S);
     if (sb.ready) S.notePages--;
     const score = await this.quiz({ title: `📖 ${subj} 강의`, sub: '교수님: "자, 오늘 배운 거 확인해 볼게요."' + (sb.ready ? '<br>📓 공책에 필기해 둬서 문제 풀 시간이 늘었어요' : ''), qs: questions('univ', 5, 0.25), sleepy: S.energy < 30, perQ: 14 + (sb.ready ? 5 : 0) + (sb.postit ? 1 : 0) });
@@ -243,7 +245,7 @@ export class SchoolGame {
       U.graduated = true; U.degree = U.major;
       if (U.major === 'biz' && S.officeRank < 1) { S.officeRank = 1; }
       this.c.audio.play('goal');
-      bigMsg('🎓 졸업을 축하해요!', `${MAJORS[U.major].name} 학사 · 마지막 학기 ${g}${U.major === 'edu' ? ' · 이제 초·중·고 교원 임용에 지원할 수 있어요' : ' · 한빛그룹 사원부터 시작해요'}`, 4600);
+      bigMsg('🎓 졸업을 축하해요!', `${MAJORS[U.major].name} 학사 · 마지막 학기 ${g}${U.major === 'edu' ? ' · 이제 초·중·고 교원 임용에 지원할 수 있어요' : U.major === 'biz' ? ' · 회사에 사원으로 지원할 수 있어요' : ' · ' + MAJORS[U.major].desc.replace('졸업하면 ', '') + ' (휴대폰 → 한빛잡)'}`, 4600);
     } else {
       U.semester++;
       U.scholarship = g === 'A+';
