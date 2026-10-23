@@ -209,6 +209,7 @@ export class MartGame {
     for (const [id, n] of items) {
       const p = P[id];
       if (p.ing) for (const [k, v] of Object.entries(p.ing)) S.inventory.ing[k] = (S.inventory.ing[k] || 0) + v * n;
+      else if (p.item) { S.items = S.items || {}; S.items[id] = (S.items[id] || 0) + n; }
       else S.inventory.food[id] = (S.inventory.food[id] || 0) + n;
     }
     M.basket = {};
@@ -744,6 +745,7 @@ export class MartGame {
 }
 
 function desc(p) {
+  if (p.desc) return p.desc;
   if (p.ing) return '요리 재료 · ' + Object.entries(p.ing).map(([k, v]) => `${v}개`).join(', ') + (p.id === 'ramenpack' ? ' (집에서 끓여요)' : '');
   return `배고픔 +${p.hunger}${p.energy ? ` · 에너지 ${p.energy > 0 ? '+' : ''}${p.energy}` : ''}${p.needWater ? ' · 뜨거운 물 필요' : ''}${p.heat ? ' · 데우면 더 맛있어요' : ''}`;
 }

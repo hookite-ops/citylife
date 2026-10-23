@@ -23,6 +23,7 @@ export const PRODUCTS = [
   { id: 'choco', name: '초코바', icon: '🍫', price: 1300, cat: 'snack', hunger: 5, mood: 4, energy: 3 },
   { id: 'bread', name: '소보로빵', icon: '🍞', price: 2000, cat: 'snack', hunger: 14, mood: 2 },
   { id: 'jelly', name: '젤리', icon: '🍬', price: 1500, cat: 'snack', hunger: 3, mood: 5 },
+  { id: 'umbrella', name: '투명 비닐우산', icon: '☂️', price: 5000, cat: 'snack', item: true, desc: '비·눈 올 때 자동으로 써요' },
   // 음료 (뒤쪽 냉장고)
   { id: 'water', name: '생수 500ml', icon: '💧', price: 900, cat: 'drink', hunger: 1, mood: 1 },
   { id: 'cola', name: '콜라', icon: '🥤', price: 2000, cat: 'drink', hunger: 2, mood: 4, energy: 3 },

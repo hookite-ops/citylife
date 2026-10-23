@@ -23,6 +23,13 @@ export class ShopGame {
   constructor(ctx) {
     this.c = ctx;   // { S, audio, player, human, checkout, payCash, persist, passTime, eatMeal, foodInfo, seat(spot|null), restyle, updateHUD, missions, setBusy }
     this.sess = null; this.seatedAt = null;
+    // 세일 · 개업 할인
+    const raw = ctx.checkout;
+    ctx.checkout = (t, o, f) => {
+      const sale = this.sess?.t?.sale;
+      if (sale && t > 0) { const nt = Math.round(t * (1 - sale / 100) / 10) * 10; o = { ...o, sub: `🏷️ ${sale}% 할인 (${won(t)} → ${won(nt)}) · ${o?.sub || ''}` }; t = nt; }
+      return raw(t, o, f);
+    };
   }
   get S() { return this.c.S; }
   hour() { return ST.hour(this.S) % 24; }
@@ -34,6 +41,7 @@ export class ShopGame {
       if (this.sess && this.sess.owed > 0) return this.sess;  // 계산 안 한 곳이 있으면 그대로
       const t = z.tenant, R = seeded(Math.floor(this.S.minutes / 1440) * 7 + (z.unit.k || 0) * 13 + (t.slot || 0));
       this.sess = { unit: z.unit, t, type: t.type, fam: TYPES[t.type]?.fam, stage: 'none', bill: [], owed: 0, basket: {}, items: [], cashOnly: R() < (CASH_ONLY[t.type] || 0) };
+      if (t.sale) toast(t.grand !== undefined ? `🎉 신장개업! 이번 주 ${t.sale}% 할인해 드려요` : `🏷️ 이번 주 ${t.sale}% 세일 중!`, 'good', 3000);
     }
     return this.sess;
   }

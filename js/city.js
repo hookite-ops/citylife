@@ -763,6 +763,7 @@ export class City {
   busStop(gb, side, c, u, axis) {
     const off = side * (ROAD / 2 + 2.6);
     const [x, z] = axis === 'z' ? [c + off, u] : [u, c + off];
+    (this.busStops = this.busStops || []).push({ x, z, axis, side, c, u, nx: axis === 'z' ? -side : 0, nz: axis === 'x' ? -side : 0 });
     const w = 4.5, d = 1.5;
     const W = axis === 'z' ? d : w, D = axis === 'z' ? w : d;
     gb.setColor(0x2f6fd6); gb.cbox(x, Y0 + 2.6, z, W + 0.2, 0.12, D + 0.2);

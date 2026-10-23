@@ -118,6 +118,7 @@ export function createHuman(o = {}) {
   const api = {
     ...r, pose: 'stand', carry: false, work: false,
     animate(dt, speed, run, air) {
+      if (api.pose === 'bike') { phase += dt * speed * 1.6; legs[0].hip.rotation.x = -1.05 + Math.sin(phase) * 0.45; legs[1].hip.rotation.x = -1.05 - Math.sin(phase) * 0.45; return; }
       if (api.pose !== 'stand') return;
       const moving = speed > 0.2 && !air;
       phase += dt * (run ? 11 : 7.5) * Math.min(1.3, speed / (run ? 5 : 1.9));
@@ -153,6 +154,8 @@ export function createHuman(o = {}) {
       for (const l of legs) l.hip.rotation.set(0, 0, 0);
       for (const a of arms) a.shoulder.rotation.set(0, 0, 0);
       if (p === 'sit') { for (const l of legs) l.hip.rotation.x = -Math.PI / 2; body.position.y = -HIP + 0.46; for (const a of arms) a.shoulder.rotation.x = -0.35; }
+      if (p === 'bike') { body.position.y = -HIP + 0.95; for (const a of arms) a.shoulder.rotation.x = -1.25; body.rotation.x = 0.18; }
+      if (p === 'scoot') { body.position.y = 0.17; arms[0].shoulder.rotation.x = -1.1; arms[1].shoulder.rotation.x = -1.1; }
       if (p === 'lie') { body.rotation.x = -Math.PI / 2; body.position.set(0, 0.17, NECK * 0.62); }
     },
   };

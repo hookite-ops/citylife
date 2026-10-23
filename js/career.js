@@ -289,6 +289,14 @@ export class Career {
       d.t = 14 + Math.random() * 10;
       if (d.q.length < 4) { d.q.push(this.makeTask(j.kind, h)); this.c.audio.play?.('ding'); if (d.q.length === 1) toast(`🔔 할 일: ${d.q[0].icon} ${d.q[0].name}`, '', 2400); }
     }
+    // 경찰 · 소방: 도시에서 실제로 일어난 사고 · 화재에 출동
+    if ((j.kind === 'police' || j.kind === 'fire') && this.c.life) {
+      const life = this.c.life;
+      d.dispT = (d.dispT ?? 20) - dt;
+      if (d.dispT <= 0) { d.dispT = 40 + Math.random() * 40; if (!life.pendingFor(j.kind) && Math.random() < 0.35) life.dispatchSpawn(j.kind); }
+      const ev = life.pendingFor(j.kind);
+      if (ev && !d.q.some(t => t.ev === ev)) { ev.dispatched = true; d.q.unshift({ type: 'dispatch', ev, icon: '🚨', name: `긴급 출동 · ${ev.where}` }); this.c.audio.play?.('ding'); toast(`🚨 긴급 출동! ${ev.where} ${ev.kind === 'fire' ? '화재' : '교통사고'}`, 'bad', 3600); }
+    }
     for (const mh of [11, 15]) if (j.kind === 'office' && h >= mh && h < mh + 0.2 && !d.meetings.has(mh)) { d.meetings.add(mh); d.q.unshift({ type: 'meeting', icon: '🗣️', name: `${mh}시 팀 회의` }); toast('🗣️ 회의 시간이에요!', '', 2400); }
     if (h >= 12 && h < 12.1 && !d.lunch) { d.lunch = true; toast('🍱 점심시간! (12~13시) 밖에서 밥 먹고 와요', '', 3200); }
     if (h >= j.end && !d.endMsg) { d.endMsg = true; toast('🕕 퇴근 시간이에요 · 더 일하면 야근수당이 나와요', '', 3600); d.ot = true; }
@@ -312,6 +320,11 @@ export class Career {
   doTask() {
     const d = this.day, t = d.q[0]; if (!t) return;
     const finish = (good) => { d.q.shift(); d.done++; if (good) d.good++; this.job.perf += good ? 1 : -0.5; toast(good ? `✅ ${t.name} 완료! 잘했어요` : `😓 ${t.name} 끝냈지만 실수가 있었어요`, good ? 'good' : 'bad', 2000); this.c.passTime(20, 'work'); };
+    if (t.type === 'dispatch') {
+      const fire = t.ev.kind === 'fire';
+      const st = { icon: fire ? '🚒' : '🚓', name: t.name, steps: fire ? ['출동', '호스 연결', '인명 수색', '물 뿌리기', '잔불 정리'] : ['출동', '라바콘 설치', '부상자 확인', '견인차 요청', '도로 정리'] };
+      return this.steps(st, (good) => { this.c.life.resolve(t.ev, good); this.job.perf += good ? 1.5 : 0; finish(good); this.c.passTime(40, 'work'); });
+    }
     if (t.type === 'meeting') return this.quiz('🗣️ 팀 회의', [[`이번 분기 ${pick(['매출', '신제품', '마케팅'])} 회의 · 내 의견은?`, ['데이터를 근거로 개선안을 낸다', '조용히 졸기', '딴소리'], 0]], finish);
     if (t.type === 'approve') return this.approveGame(finish);
     if (t.type === 'email') return this.quiz('📧 이메일 회신', [[pick(['거래처: "납기가 늦어지는데 어떻게 되나요?"', '고객: "환불 요청드립니다"', '협력사: "미팅 일정 잡을 수 있을까요?"']), ['정중하게 사과하고 일정·방법을 안내한다', '읽고 무시한다', '반말로 답한다'], 0]], finish);
@@ -416,7 +429,7 @@ export class Career {
     const S = this.S;
     openSheet({
       icon: '🏛️', title: '한빛시청 민원실', sub: '"번호표 순서대로 도와드릴게요"',
-      html: row({ icon: '👮', title: '경찰 공무원 시험 응시', desc: S.exams?.police ? '✅ 합격' : '필기 5문제 · 응시료 없음', btn: '응시', action: 'ex:police', disabled: !!S.exams?.police }) +
+      html: (this.c.life?.voteRow() || '') + row({ icon: '👮', title: '경찰 공무원 시험 응시', desc: S.exams?.police ? '✅ 합격' : '필기 5문제 · 응시료 없음', btn: '응시', action: 'ex:police', disabled: !!S.exams?.police }) +
         row({ icon: '🧑‍🚒', title: '소방 공무원 시험 응시', desc: S.exams?.fire ? '✅ 합격' : '필기 5문제', btn: '응시', action: 'ex:fire', disabled: !!S.exams?.fire }) +
         row({ icon: '🏠', title: '전입신고', desc: S.homeUnit ? `${S.homeUnit.name}` : '이사하면 해요', btn: '신고', action: 'move', disabled: !S.homeUnit || S.movedReg === S.homeUnit?.bid }) +
         row({ icon: '📄', title: '주민등록등본 발급', desc: '500원', btn: '발급', action: 'doc' }),
@@ -424,6 +437,7 @@ export class Career {
         ex: (k) => { closeSheet(); this.exam(k, (ok) => { if (ok) { S.exams = S.exams || {}; S.exams[k] = true; bigMsg('🎉 필기 합격!', `${k === 'police' ? '경찰' : '소방'} 공무원 · 한빛잡에서 지원할 수 있어요`, 3600); } else toast('😢 불합격… 독서실에서 공부하고 다시 도전해요', 'bad', 3200); this.c.persist(); }); },
         move: () => { S.movedReg = S.homeUnit.bid; S.mood = ST.clamp(S.mood + 3); closeSheet(); toast('🏠 전입신고 완료 · 이제 이 동네 주민이에요', 'good'); this.c.persist(); },
         doc: () => { closeSheet(); if (this.c.payCash(500)) toast('📄 주민등록등본을 받았어요', 'good'); },
+        vote: () => { closeSheet(); this.c.life?.voteSheet(); },
       }),
     });
   }

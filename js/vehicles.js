@@ -10,7 +10,7 @@ const PROFILES = {
   sport: { L: 4.5, W: 1.95, cabW: 1.5, wr: 0.34, lower: [[-2.25, 0.25], [2.2, 0.25], [2.3, 0.42], [2.15, 0.62], [0.9, 0.8], [-1.4, 0.86], [-2.2, 0.82], [-2.28, 0.55]], cabin: [[0.92, 0.78], [-0.1, 1.2], [-0.8, 1.21], [-1.9, 0.84]], roof: [-0.1, -0.8, 1.21], head: 0.5, tail: 0.7 },
   taxi: null, truck: null,
 };
-PROFILES.taxi = PROFILES.sedan;
+PROFILES.taxi = PROFILES.sedan; PROFILES.police = PROFILES.sedan; PROFILES.ambulance = PROFILES.suv;
 
 const geoCache = {};
 function extrude(points, width, bevel = 0.04) {
@@ -38,7 +38,35 @@ function wheelGeo(r, w) {
 export function carGeometry(type) {
   if (geoCache[type]) return geoCache[type];
   let out;
-  if (type === 'truck') {
+  if (type === 'bus') {
+    // 시내버스 (저상): 길이 11m
+    const body = new GB(), det = new GB(), lights = new GB();
+    body.cbox(0, 1.75, 0, 2.5, 2.7, 11);
+    det.setColor(0x10161c);
+    det.cbox(1.26, 2.05, -0.4, 0.04, 1.15, 8.6); det.cbox(-1.26, 2.05, 0, 0.04, 1.15, 9.6);
+    det.cbox(0, 2.0, 5.51, 2.2, 1.5, 0.04); det.cbox(0, 2.3, -5.51, 2.0, 0.9, 0.04);
+    det.setColor(0x2a2e33); det.cbox(1.27, 1.45, 4.3, 0.04, 2.3, 1.1); det.cbox(1.27, 1.45, -0.6, 0.04, 2.3, 1.1);   // 문
+    det.setColor(0xf2f2ee); det.cbox(0, 3.12, 0, 2.3, 0.06, 10.6);
+    det.setColor(0x222222); det.cbox(0, 0.42, 0, 2.3, 0.3, 10.6);
+    const wg = wheelGeo(0.5, 0.32);
+    for (const [x, z] of [[-1.05, 3.6], [1.05, 3.6], [-1.05, -3.2], [1.05, -3.2]]) det.addGeo(wg, new THREE.Matrix4().makeTranslation(x, 0.5, z));
+    lights.setColor(0xfff4dc); lights.cbox(0.85, 0.85, 5.52, 0.4, 0.2, 0.05); lights.cbox(-0.85, 0.85, 5.52, 0.4, 0.2, 0.05);
+    lights.setColor(0xff8a1a); lights.cbox(0, 2.95, 5.53, 1.6, 0.26, 0.04);   // 행선지 전광판
+    lights.setColor(0xff2010); lights.cbox(1.0, 0.95, -5.52, 0.25, 0.4, 0.05); lights.cbox(-1.0, 0.95, -5.52, 0.25, 0.4, 0.05);
+    out = { body: body.build(), detail: det.build(), lights: lights.build(), L: 11.2, W: 2.5, wheels: null };
+  } else if (type === 'firetruck') {
+    const body = new GB(), det = new GB(), lights = new GB();
+    body.cbox(0, 1.7, -0.9, 2.4, 2.2, 5.6); body.cbox(0, 1.55, 2.75, 2.4, 2.1, 1.9);
+    det.setColor(0x0d1216); det.cbox(0, 2.05, 3.71, 2.1, 0.8, 0.05); det.cbox(1.21, 2.0, 2.8, 0.04, 0.7, 1.2); det.cbox(-1.21, 2.0, 2.8, 0.04, 0.7, 1.2);
+    det.setColor(0xd8dcdf); det.cbox(0, 2.95, -0.9, 0.9, 0.18, 6.4); det.cbox(0.4, 3.05, -0.9, 0.06, 0.12, 6.4); det.cbox(-0.4, 3.05, -0.9, 0.06, 0.12, 6.4);   // 사다리
+    det.setColor(0xe8e8e8); det.cbox(1.21, 1.3, -0.9, 0.04, 0.12, 5.4); det.cbox(-1.21, 1.3, -0.9, 0.04, 0.12, 5.4);
+    det.setColor(0x222222); det.cbox(0, 0.55, 0.4, 2.1, 0.3, 7.2);
+    const wg = wheelGeo(0.5, 0.34);
+    for (const [x, z] of [[-1.0, 2.8], [1.0, 2.8], [-1.0, -2.2], [1.0, -2.2], [-1.0, -1.1], [1.0, -1.1]]) det.addGeo(wg, new THREE.Matrix4().makeTranslation(x, 0.5, z));
+    lights.setColor(0xff2010); lights.cbox(0.6, 2.7, 2.9, 0.5, 0.18, 0.4); lights.setColor(0x2050ff); lights.cbox(-0.6, 2.7, 2.9, 0.5, 0.18, 0.4);
+    lights.setColor(0xfff4dc); lights.cbox(0.85, 0.9, 3.72, 0.35, 0.18, 0.05); lights.cbox(-0.85, 0.9, 3.72, 0.35, 0.18, 0.05);
+    out = { body: body.build(), detail: det.build(), lights: lights.build(), L: 7.4, W: 2.4, wheels: null };
+  } else if (type === 'truck') {
     const body = new GB(), det = new GB(), lights = new GB();
     body.cbox(0, 1.95, -0.9, 2.3, 2.3, 5.0);          // 화물칸
     body.cbox(0, 1.25, 2.45, 2.2, 1.5, 1.7);          // 캡 아래
@@ -87,6 +115,11 @@ export function carGeometry(type) {
     // 번호판
     lights.setColor(0xe8e8e8);
     lights.cbox(0, p.lower[0][1] + 0.3, rz - 0.01, 0.52, 0.11, 0.02);
+    if (type === 'police' || type === 'ambulance') {   // 경광등
+      const zc = (rz0 + rz1) / 2;
+      lights.setColor(0xff2010); lights.cbox(0.3, ry + 0.12, zc, 0.5, 0.14, 0.26);
+      lights.setColor(0x2050ff); lights.cbox(-0.3, ry + 0.12, zc, 0.5, 0.14, 0.26);
+    }
     const detNoWheel = new GB();
     detNoWheel.setColor(0x0b1014); detNoWheel.addGeo(extrude(p.cabin, p.cabW, 0.03));
     detNoWheel.setColor(0x1a1c1e);
@@ -109,7 +142,7 @@ export const trafficLightMat = new THREE.MeshBasicMaterial({ vertexColors: true 
 export function buildCarMesh(type, color, { player = false } = {}) {
   const g = carGeometry(type);
   const root = new THREE.Group();
-  const body = new THREE.Mesh(g.body, paint(type === 'taxi' ? 0xf28c1c : color));
+  const body = new THREE.Mesh(g.body, paint(type === 'taxi' ? 0xf28c1c : type === 'police' ? 0xf4f6f8 : type === 'ambulance' ? 0xf2f2f0 : type === 'firetruck' ? 0xc81e1e : color));
   const det = new THREE.Mesh(player && g.detailNoWheel ? g.detailNoWheel : g.detail, detailMat);
   const lightMat = player ? new THREE.MeshBasicMaterial({ vertexColors: true }) : trafficLightMat;
   const lights = new THREE.Mesh(g.lights, lightMat);
@@ -134,12 +167,14 @@ function dirKey(d) { return d[0] > 0 ? '+x' : d[0] < 0 ? '-x' : d[1] > 0 ? '+z' 
 
 // ───────── 교통 시스템 ─────────
 const TRAFFIC_COLORS = [0xf2f2ee, 0xe9e9e6, 0x111316, 0x1a1c20, 0x8c9096, 0xa8adb2, 0x2b3a55, 0x6b1a1a, 0x3a4a3a, 0xc8c2b0, 0x24303c, 0xf2f2ee, 0x4a4f55];
-const TYPES = ['sedan', 'sedan', 'sedan', 'hatch', 'suv', 'suv', 'taxi', 'taxi', 'truck', 'sport'];
+const TYPES = ['sedan', 'sedan', 'sedan', 'hatch', 'suv', 'suv', 'taxi', 'taxi', 'truck', 'sport', 'bus'];
+const BUS_COLORS = [0x2f6fd6, 0x2f6fd6, 0x3aa655, 0xd83a2a];
 
 export class Traffic {
   constructor(scene, city, count) {
     this.scene = scene; this.city = city;
     this.cars = [];
+    this.obstacles = [];      // 사고 차량 · 소방차 등 멈춰 있는 것
     this.group = new THREE.Group(); scene.add(this.group);
     // 야간 헤드라이트 빛 웅덩이
     const tex = city.mat.pool.map;
@@ -174,13 +209,14 @@ export class Traffic {
       const pos = this.lanePos(a, b, d, lane, u);
       if (this.cars.some(c => c.pos.distanceTo(pos) < 9)) continue;
       if (far && far.distanceTo(pos) < 120) continue;
-      const type = TYPES[Math.floor(Math.random() * TYPES.length)];
-      const color = TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)];
+      let type = TYPES[Math.floor(Math.random() * TYPES.length)];
+      if (type === 'bus' && lane !== 2) type = 'sedan';
+      const color = type === 'bus' ? BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)] : TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)];
       const mesh = buildCarMesh(type, color);
       this.group.add(mesh.root);
       const car = {
         id: Math.random(), mesh, type, a, b, d, lane, u, L, state: 'straight', pos, heading: Math.atan2(d[0], d[1]),
-        speed: 6, maxSpeed: (type === 'truck' ? 10 : 12) + Math.random() * 4, stuck: 0, len: mesh.L,
+        speed: 6, maxSpeed: (type === 'truck' || type === 'bus' ? 10 : 12) + Math.random() * 4, stuck: 0, len: mesh.L,
       };
       this.plan(car);
       this.cars.push(car);
@@ -255,12 +291,13 @@ export class Traffic {
         if (gap < best) { best = gap; c.blockedBy = who; }
       };
       for (const o of cars) if (o !== c) check(o.pos.x, o.pos.z, o.len, o);
+      for (const o of this.obstacles) check(o.x, o.z, o.len, 'obstacle');
       if (playerCar) check(playerCar.pos.x, playerCar.pos.z, 4.5, 'player');
       else if (playerPos && !this.city.isOnBlock(playerPos.x, playerPos.z)) check(playerPos.x, playerPos.z, 0.6, 'player');
       c.gap = best;
     }
     for (const c of cars) {
-      if (c.blockedBy && c.blockedBy !== 'player' && c.blockedBy.blockedBy === c && c.id < c.blockedBy.id) c.gap = 1e9;
+      if (c.blockedBy && typeof c.blockedBy === 'object' && c.blockedBy.blockedBy === c && c.id < c.blockedBy.id) c.gap = 1e9;
     }
     // 2) 이동
     let pi = 0;

@@ -103,6 +103,7 @@ export function passTime(s, minutes, mode = 'idle') {
   s.hunger = clamp(s.hunger + r.hunger * hrs);
   s.energy = clamp(s.energy + r.energy * hrs * (s.hunger <= 0 ? 1.8 : 1));
   s.mood = clamp(s.mood + r.mood * hrs - (s.hunger < 15 ? 2 * hrs : 0) - (s.energy < 15 ? 2 * hrs : 0));
+  if (s.sick) { s.energy = clamp(s.energy - (mode === 'sleep' ? 3 : 2.2) * hrs); s.mood = clamp(s.mood - 1.2 * hrs); }
   const after = Math.floor(s.minutes / 1440);
   if (after > before) { s.stats.daysLived += after - before; s.shiftsToday = 0; }
 }
