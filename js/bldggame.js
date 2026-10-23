@@ -513,7 +513,8 @@ export class BldgGame {
       const extra = this.c.shop?.()?.hud?.(r, t) || '';
       return `${TYPES[t.type]?.icon || '🏪'} <b>${t.name}</b> · ${floorLabel(this.n, B)}<small>${extra || (open ? `영업 중 · ${hoursLabel(t.type)}` : '🔒 영업 준비 중 · ' + hoursLabel(t.type))}</small>`;
     }
-    if (r?.kind === 'unit' && r.home) return `🏠 <b>${r.num || ''}</b> · 빈 집<small>${B.name}</small>`;
-    return `🏢 <b>${B.name}</b> · ${floorLabel(this.n, B)}<small>${this.riding ? '🛗 엘리베이터 안' : r?.kind === 'stairs' ? '🚶 비상계단' : r?.kind === 'parking' ? '🅿️ 지하 주차장' : this.view.plan.roof ? '🌇 옥상' : B.residential ? '주거 건물' : '상가 건물'}</small>`;
+    if (r?.kind === 'unit' && r.home) return `🏠 <b>${r.num || ''}</b> · ${this.view.isMine?.(r) ? '우리 집' : r.vacant ? '빈 집' : '세대'}<small>${B.name}</small>`;
+    const co = B.kind === 'office' && this.n > 1 ? this.c.company?.(B, this.n) : null;
+    return `🏢 <b>${B.name}</b> · ${floorLabel(this.n, B)}<small>${this.riding ? '🛗 엘리베이터 안' : r?.kind === 'stairs' ? '🚶 비상계단' : r?.kind === 'parking' ? '🅿️ 지하 주차장' : this.view.plan.roof ? '🌇 옥상' : co ? `💼 ${co.name} (${co.ind})` : B.kind === 'office' ? '오피스 빌딩' : B.residential ? '주거 건물' : B.kind === 'mall' ? '쇼핑몰' : '상가 건물'}</small>`;
   }
 }

@@ -83,12 +83,14 @@ export class LivingCity {
     const leaf = LEAF[s.id], em = LEAF_EM[s.id];
     const lm = city.treeMats.leaf;
     lm.color.setRGB(leaf[0] * (1 - snow * 0.6), leaf[1] * (1 - snow * 0.6), leaf[2] * (1 - snow * 0.6));
-    lm.emissive.setRGB(em[0] + snow * 0.62, em[1] + snow * 0.64, em[2] + snow * 0.7);
+    const day = 1 - Math.min(1, (this.c.night?.() || 0)) * 0.85;   // 밤에는 눈·단풍이 빛나지 않게
+    const sn = snow * day;
+    lm.emissive.setRGB((em[0] + snow * 0.62) * day, (em[1] + snow * 0.64) * day, (em[2] + snow * 0.7) * day);
     city.mat.grass.color.set(GRASS[s.id]);
-    city.mat.grass.emissive.setRGB(snow * 0.62, snow * 0.64, snow * 0.7);
-    city.mat.hedge.emissive.setRGB(snow * 0.5, snow * 0.52, snow * 0.56);
-    city.mat.sidewalk.emissive.setRGB(snow * 0.3, snow * 0.31, snow * 0.34);
-    city.mat.pave.emissive.setRGB(snow * 0.3, snow * 0.31, snow * 0.34);
+    city.mat.grass.emissive.setRGB(sn * 0.62, sn * 0.64, sn * 0.7);
+    city.mat.hedge.emissive.setRGB(sn * 0.5, sn * 0.52, sn * 0.56);
+    city.mat.sidewalk.emissive.setRGB(sn * 0.3, sn * 0.31, sn * 0.34);
+    city.mat.pave.emissive.setRGB(sn * 0.3, sn * 0.31, sn * 0.34);
   }
   // ─ 매 프레임 ─
   update(dt, paused, inside) {
@@ -155,12 +157,21 @@ export class LivingCity {
     const cold = this.temp() < -2 ? 0.75 : 1;
     const wantP = Math.max(4, Math.round(base.peds * CROWD[h] * (1 - rain * 0.3) * cold));
     const peds = this.c.peds;
+    const f = this.c.focus();
     if (peds.list.length < wantP) peds.setCount(peds.list.length + 1);
-    else if (peds.list.length > wantP) peds.setCount(peds.list.length - 1);
+    else if (peds.list.length > wantP) {   // 안 보이는 먼 사람부터 집으로
+      let bi = -1, bd = 115;
+      peds.list.forEach((o, i) => { const d = o.pos.distanceTo(f); if (d > bd) { bd = d; bi = i; } });
+      if (bi >= 0) { const o = peds.list.splice(bi, 1)[0]; peds.group.remove(o.p.root); }
+    }
     const wantT = Math.max(6, Math.round(base.traffic * CARS[h]));
     const tr = this.c.traffic;
-    if (tr.cars.length < wantT) tr.setCount(tr.cars.length + 1);
-    else if (tr.cars.length > wantT + 1) tr.setCount(tr.cars.length - 1);
+    if (tr.cars.length < wantT) tr.spawn(this.c.focus());   // 화면 밖(120m 이상)에서 나타나게
+    else if (tr.cars.length > wantT + 1) {
+      let bi = -1, bd = 200;
+      tr.cars.forEach((c, i) => { const d = c.pos.distanceTo(f); if (d > bd) { bd = d; bi = i; } });
+      if (bi >= 0) { const c = tr.cars.splice(bi, 1)[0]; tr.group.remove(c.mesh.root); }
+    }
   }
 
   // ─ 하루 · 주 단위 ─
@@ -224,6 +235,9 @@ export class LivingCity {
       const [n, k] = key0.split(':').map(Number), key = unitKey(B.id, n, k);
       const cur = OVERRIDES.get(key);
       if (cur && !cur.churn) continue;        // 내 가게 · 지구대 등은 건드리지 않음
+      const j = S.career; if (j && j.bid === B.id && (j.k == null || (j.n === n && j.k === k))) continue;   // 내 직장
+      if (Object.values(S.parttime || {}).some(p => p.bid === B.id && p.n === n && p.k === k)) continue;    // 알바하는 곳
+      if ((S.applications || []).some(a => a.place?.bid === B.id)) continue;
       if (touched.has(key)) continue; touched.add(key);
       const kind = i < 3 ? 'close' : i < 6 ? 'open' : 'sale';
       if (kind === 'close' && !t.vacant) {
@@ -285,7 +299,7 @@ export class LivingCity {
   placeName(x, z) {
     let best = null, bd = 1e9;
     for (const s of this.c.city.bldgs) { if (!s.bname) continue; const d = Math.hypot((s.x0 + s.x1) / 2 - x, (s.z0 + s.z1) / 2 - z); if (d < bd) { bd = d; best = s; } }
-    return best ? best.bname.replace(/ \d+차$/, '') : '한빛신도시';
+    return best ? best.bname.replace(/ \d+차$/, '').replace(/ \d+동$/, '') : '한빛신도시';
   }
   addCar(type, color, x, z, h, ev, obstacle = true, own = false) {
     const m = buildCarMesh(type, color, { player: own });

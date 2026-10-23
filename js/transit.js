@@ -84,7 +84,7 @@ function bikeMesh(scooter) {
 }
 
 export class Transit {
-  constructor(ctx) { this.c = ctx; this.riding = null; this.stops = []; this.stations = []; this.docks = []; this.scooters = []; }
+  constructor(ctx) { this.c = ctx; this.riding = null; this.stops = []; this.stations = []; this.docks = []; this.scooters = []; this.reserve = []; }
   get S() { return this.c.S; }
   setup() {
     const city = this.c.city;
@@ -94,7 +94,7 @@ export class Transit {
     for (const st of city.busStops || []) {
       let best = null, bd = 90;
       for (const s of city.bldgs) { if (!s.bname) continue; const d = Math.hypot((s.x0 + s.x1) / 2 - st.x, (s.z0 + s.z1) / 2 - st.z); if (d < bd) { bd = d; best = s; } }
-      let nm = best ? best.bname.replace(/ \d+차$/, '') : '한빛신도시';
+      let nm = best ? best.bname.replace(/ \d+차$/, '').replace(/ \d+동$/, '') : `한빛${nearestRoad(st.c) + 1}${st.axis === 'z' ? '로' : '대로'}`;
       const n = named.get(nm) || 0; named.set(nm, n + 1);
       st.name = n ? `${nm}${n === 1 ? ' 건너편' : ` ${n + 1}`}` : nm;
       const k = nearestRoad(st.c);
@@ -102,33 +102,59 @@ export class Transit {
       st.color = st.axis === 'z' ? '#2f6fd6' : '#3aa655';
       this.stops.push(st);
     }
-    // 지하철역 입구 (교차로 모퉁이 보도)
-    const eg = new GB(), sg = new GB();
+    // 지하철역 입구 (교차로 모퉁이 보도 · 나무·가로등·건물과 안 겹치는 모퉁이)
+    const eg = new GB(), sg = new GB(), gl = new GB();
     for (const [a, b, name] of STATIONS) {
       if (!nodeExists(a, b)) continue;
-      const x = ROADS[a] + ROAD / 2 + 2.3, z = ROADS[b] + ROAD / 2 + 7.5;
-      this.stations.push({ a, b, name, x, z: z - 3.4, cx: x, cz: z });
-      eg.setColor(0x2a2e33); eg.cbox(x, Y0 + 1.25, z + 2.4, 2.4, 2.5, 0.12); eg.cbox(x - 1.2, Y0 + 1.25, z, 0.1, 2.5, 4.8); eg.cbox(x + 1.2, Y0 + 1.25, z, 0.1, 2.5, 4.8);
-      eg.setColor(0x9ac4d9); eg.cbox(x, Y0 + 2.55, z, 2.6, 0.1, 5.0);
-      eg.setColor(0x6d737a); for (let k = 0; k < 6; k++) eg.cbox(x, Y0 - 0.1 - k * 0.18 + 0.12, z - 1.6 + k * 0.6, 2.2, 0.06, 0.6);
-      eg.setColor(0x2a2e33); eg.cbox(x - 1.6, Y0 + 1.4, z - 2.6, 0.12, 2.8, 0.12);
-      sg.setColor(0xf2f2ee); sg.cbox(x - 1.6, Y0 + 3.0, z - 2.6, 0.9, 0.9, 0.08);
-      sg.setColor(0x1f7a3f); sg.cbox(x - 1.6, Y0 + 3.0, z - 2.55, 0.7, 0.7, 0.08);
-      city.colliders.push({ x0: x - 1.3, x1: x + 1.3, z0: z - 1.8, z1: z + 2.5, h: 2.6 });
+      let spot = null;
+      for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+        for (const along of [7.5, 10.5, 13.5]) {
+          const x = ROADS[a] + sx * (ROAD / 2 + 2.3), z = ROADS[b] + sz * (ROAD / 2 + along);
+          if (this.free(x, z, 1.5) && this.free(x, z + sz * 1.8, 1.4) && this.free(x, z - sz * 1.8, 1.4)) { spot = { x, z, sx, sz }; break; }
+        }
+        if (spot) break;
+      }
+      if (!spot) continue;
+      const { x, z, sx, sz } = spot;
+      this.stations.push({ a, b, name, x, z: z - sz * 3.4, cx: x, cz: z });
+      // 기둥 · 지붕 (프레임) + 유리 벽 (따로 반투명)
+      eg.setColor(0x2a2e33);
+      for (const px of [-1.2, 1.2]) for (const pz of [-2.4, 0, 2.4]) eg.cbox(x + px, Y0 + 1.25, z + pz, 0.1, 2.5, 0.1);
+      eg.cbox(x, Y0 + 2.5, z, 2.6, 0.14, 5.0);
+      eg.setColor(0x1f7a3f); eg.cbox(x, Y0 + 2.62, z, 2.62, 0.1, 5.02);
+      eg.setColor(0x3a3f45); eg.cbox(x, Y0 + 0.02, z, 2.2, 0.04, 4.6);
+      eg.setColor(0xd8dde2); eg.cbox(x - 1.1, Y0 + 0.5, z, 0.06, 0.06, 4.6); eg.cbox(x + 1.1, Y0 + 0.5, z, 0.06, 0.06, 4.6);   // 난간
+      gl.cbox(x, Y0 + 1.25, z + sz * 2.4, 2.3, 2.3, 0.04); gl.cbox(x - 1.2, Y0 + 1.25, z, 0.04, 2.3, 4.7); gl.cbox(x + 1.2, Y0 + 1.25, z, 0.04, 2.3, 4.7);
+      eg.setColor(0x2a2e33); eg.cbox(x - sx * 1.6, Y0 + 1.4, z - sz * 2.6, 0.12, 2.8, 0.12);
+      this.group.add(this.signMesh(`🚇 ${name}`, '#1f7a3f', x - sx * 1.6, Y0 + 3.05, z - sz * 2.6, sz > 0 ? Math.PI : 0, 2.4));
+      this.group.add(this.signMesh(`🚇 ${name}`, '#1f7a3f', x, Y0 + 2.9, z - sz * 2.52, sz > 0 ? Math.PI : 0, 2.4));
+      city.colliders.push({ x0: x - 1.3, x1: x + 1.3, z0: Math.min(z - sz * 1.8, z + sz * 2.5), z1: Math.max(z - sz * 1.8, z + sz * 2.5), h: 2.6 });
+      this.reserve.push({ x, z, r: 3 });
     }
     const em = new THREE.Mesh(eg.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3 }));
-    const sm = new THREE.Mesh(sg.build(), new THREE.MeshBasicMaterial({ vertexColors: true }));
-    em.castShadow = true; this.group.add(em, sm);
-    // 공공자전거 대여소 (정류장 세 곳 중 한 곳)
+    em.castShadow = true; this.group.add(em);
+    this.group.add(new THREE.Mesh(gl.build(), new THREE.MeshStandardMaterial({ color: 0xa8d4ec, transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.2, depthWrite: false })));
+    // 공공자전거 대여소 (정류장 세 곳 중 한 곳 · 보도 안쪽 빈자리)
     const dg = new GB();
     this.stops.forEach((st, i) => {
       if (i % 3) return;
-      const along = 8;
-      const x = st.axis === 'z' ? st.x : st.x + along, z = st.axis === 'z' ? st.z + along : st.z;
-      this.docks.push({ x, z, axis: st.axis, name: st.name, bikes: 4 + (i % 4) });
+      const off = st.side * (ROAD / 2 + 3.25);
+      let spot = null;
+      for (const along of [8, -8, 11, -11, 14, -14, 18, -18, 22, -22]) {
+        const u = st.u + along;
+        const x = st.axis === 'z' ? st.c + off : u, z = st.axis === 'z' ? u : st.c + off;
+        const dx = st.axis === 'z' ? 0 : 1, dz = st.axis === 'z' ? 1 : 0;
+        if (this.free(x, z, 0.9) && this.free(x + dx * 1.6, z + dz * 1.6, 0.9) && this.free(x - dx * 1.6, z - dz * 1.6, 0.9) && Math.hypot(x - st.x, z - st.z) > 4) { spot = { x, z }; break; }
+      }
+      if (!spot) return;
+      const { x, z } = spot;
+      this.docks.push({ x, z, axis: st.axis, side: st.side, name: st.name, bikes: 4 + (i % 4) });
+      this.reserve.push({ x, z, r: 2.6 });
       dg.setColor(0x2fae5a);
-      if (st.axis === 'z') { dg.cbox(x, Y0 + 0.4, z, 0.12, 0.8, 4.2); dg.cbox(x, Y0 + 1.1, z - 2.2, 0.5, 1.4, 0.2); }
-      else { dg.cbox(x, Y0 + 0.4, z, 4.2, 0.8, 0.12); dg.cbox(x - 2.2, Y0 + 1.1, z, 0.2, 1.4, 0.5); }
+      if (st.axis === 'z') { dg.cbox(x, Y0 + 0.25, z, 0.1, 0.5, 4.2); dg.cbox(x, Y0 + 1.0, z - 2.25, 0.4, 2.0, 0.3); }
+      else { dg.cbox(x, Y0 + 0.25, z, 4.2, 0.5, 0.1); dg.cbox(x - 2.25, Y0 + 1.0, z, 0.3, 2.0, 0.4); }
+      const sx = st.axis === 'z' ? x : x - 2.25, sz = st.axis === 'z' ? z - 2.25 : z;
+      this.group.add(this.signMesh('🚲 공공자전거', '#2fae5a', sx - (st.axis === 'z' ? st.side * 0.22 : 0), Y0 + 1.75, sz - (st.axis === 'x' ? st.side * 0.22 : 0), st.axis === 'z' ? (st.side > 0 ? -Math.PI / 2 : Math.PI / 2) : (st.side > 0 ? Math.PI : 0), 1.1));
     });
     this.group.add(new THREE.Mesh(dg.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 })));
     // 자전거들 (인스턴스)
@@ -145,12 +171,36 @@ export class Transit {
     this.scootDay = -1;
     this.rideMesh = { bike: bikeMesh(false), scooter: bikeMesh(true) };
   }
+  // 그 자리가 비어 있는지 (나무 · 가로등 · 건물 · 정류장 · 다른 시설)
+  free(x, z, r) {
+    const city = this.c.city;
+    const gx = Math.floor(x / 10), gz = Math.floor(z / 10);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const t of city.treeGrid.get((gx + i) + ',' + (gz + j)) || []) if (Math.hypot(t[0] - x, t[1] - z) < r + 0.7) return false;
+      const a = city.poleGrid.get((gx + i) + ',' + (gz + j)); if (a) for (let k = 0; k < a.length; k += 2) if (Math.hypot(a[k] - x, a[k + 1] - z) < r + 0.3) return false;
+    }
+    for (const c of city.query(x - r, z - r, x + r, z + r)) if (!c.median && x + r > c.x0 && x - r < c.x1 && z + r > c.z0 && z - r < c.z1) return false;
+    for (const st of city.busStops || []) if (Math.hypot(st.x - x, st.z - z) < r + 2.8) return false;
+    for (const q of this.reserve) if (Math.hypot(q.x - x, q.z - z) < r + q.r) return false;
+    if (city.onRoad(x, z)) return false;
+    return true;
+  }
+  signMesh(text, color, x, y, z, ry, w) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = color; g.fillRect(0, 0, 256, 64);
+    g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 34);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide }));
+    m.position.set(x, y, z); m.rotation.y = ry;
+    return m;
+  }
   layoutBikes() {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
     let i = 0;
     for (const d of this.docks) for (let k = 0; k < d.bikes; k++) {
-      const off = -1.6 + k * 0.75;
-      if (d.axis === 'z') { v.set(d.x - 0.5, Y0, d.z + off); e.set(0, Math.PI / 2, 0); } else { v.set(d.x + off, Y0, d.z - 0.5); e.set(0, 0, 0); }
+      const off = -1.5 + k * 0.75, sd = -(d.side || 1) * 0.55;
+      if (d.axis === 'z') { v.set(d.x + sd, Y0, d.z + off); e.set(0, Math.PI / 2, 0); } else { v.set(d.x + off, Y0, d.z + sd); e.set(0, 0, 0); }
       q.setFromEuler(e); m4.compose(v, q, one); this.bikeInst.setMatrixAt(i++, m4);
     }
     this.bikeInst.count = i; this.bikeInst.instanceMatrix.needsUpdate = true;
@@ -161,9 +211,11 @@ export class Transit {
     this.scooters = [];
     for (const st of this.stops) {
       if (R() > 0.35 || this.scooters.length >= 60) continue;
-      const a = (R() - 0.5) * 14;
-      const x = st.axis === 'z' ? st.x + st.nx * -0.6 : st.x + a, z = st.axis === 'z' ? st.z + a : st.z + st.nz * -0.6;
-      this.scooters.push({ x, z, rot: R() * 6.28 });
+      const a = (R() < 0.5 ? -1 : 1) * (5 + R() * 6);
+      const off = st.side * (ROAD / 2 + 3.4);
+      const x = st.axis === 'z' ? st.c + off : st.x + a, z = st.axis === 'z' ? st.z + a : st.c + off;
+      if (!this.free(x, z, 0.7)) continue;
+      this.scooters.push({ x, z, rot: (st.axis === 'z' ? 0 : Math.PI / 2) + (R() - 0.5) * 0.5 });
     }
     this.drawScooters();
   }
@@ -320,7 +372,7 @@ export class Transit {
   }
   update(dt) {
     this.layoutScooters();
-    if (this.riding && this.c.mode() !== 'city') this.endRide(null, true);
+    if (this.riding && (this.c.mode() !== 'city' || this.c.inCar?.())) this.endRide(null, true);
   }
   speed() { return this.riding?.speed || 0; }
 }

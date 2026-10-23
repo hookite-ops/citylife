@@ -180,11 +180,11 @@ async function boot() {
   weather.onChange = (k, was) => { if (mode === 'title') return; toast(k === 'snow' ? '🌨️ 눈이 내리기 시작했어요 · 길이 미끄러워요' : k === 'rain' ? '🌧️ 비가 내리기 시작했어요 · 우산 없으면 감기 조심' : was === 'snow' ? '🌤️ 눈이 그쳤어요' : '🌤️ 비가 그쳤어요', '', 3200); };
   missions = new Missions({ get S() { return S; }, city, audio, flashMoney, persist });
   missions.init();
-  transit = new Transit({ get S() { return S; }, scene, city, player, human, audio, persist: () => persist(), missions, flash: (g) => flashMoney(g), setBusy: (v) => { busy = v; }, passTime: (m, md) => ST.passTime(S, m, md || 'idle'), teleport: (x, z, h) => teleportTo(x, z, h), places: () => travelPlaces(), night: () => sky.night, mode: () => mode });
+  transit = new Transit({ get S() { return S; }, scene, city, player, human, audio, persist: () => persist(), missions, flash: (g) => flashMoney(g), setBusy: (v) => { busy = v; }, passTime: (m, md) => ST.passTime(S, m, md || 'idle'), teleport: (x, z, h) => teleportTo(x, z, h), inCar: () => inCar, places: () => travelPlaces(), night: () => sky.night, mode: () => mode });
   transit.setup();
   life = new LivingCity({ get S() { return S; }, scene, city, traffic, peds, human, player, weather, audio, persist: () => persist(), missions, passTime: (m) => ST.passTime(S, m, 'idle'),
     minPerSec: () => MIN_PER_SEC * (lastShift ? 2 : 1), inCar: () => inCar, riding: () => !!transit.riding, focus: () => (inCar && pcar ? pcar.pos : playerWorld()), base: () => QUAL[quality], career: () => career,
-    refreshSpec: (sp) => city.refreshSpec(sp), underRoof: (p) => !!transit.near(transit.stops, p, 2.2) || !!transit.near(transit.stations, p, 2.6), onNews: (n) => { if (n.tag === 'event' && mode !== 'title') updateHUD(true); } });
+    refreshSpec: (sp) => city.refreshSpec(sp), night: () => sky.night, underRoof: (p) => !!transit.near(transit.stops, p, 2.2) || !!transit.near(transit.stations, p, 2.6), onNews: (n) => { if (n.tag === 'event' && mode !== 'title') updateHUD(true); } });
   life.init();
   stat = new StatRoom();
   statGame = new StatGame({ get S() { return S; }, room: stat, audio, pay, checkout, payCash, persist, setBusy: (v) => { busy = v; }, onBuy: () => missions.event('buy_stat'), onGacha: () => missions.event('gacha') });
@@ -535,7 +535,7 @@ function frame(now) {
         roomLight.intensity = pl.roof ? 0 : 1.3 + sky.night * 0.4;
         if (!pl.roof && !pl.exitOpen) sky.sun.intensity *= 0.3;
         updateRoomCamera(dt);
-        if (!paused) { const a = bldg.action(); if (a) setAct(a.label, a.fn, a.green); else setAct(null); }
+        if (!paused) { const a = bldg.action(); if (a) setAct(a.label, a.fn, a.green); else setAct(null); setCarBtn(a?.alt?.label || null, a?.alt?.fn); }
       }
       audio.ambient(sky.night > 0.5, mode === 'bldg' && !room?.plan?.roof);
     } else if (mode === 'school') {
@@ -897,7 +897,7 @@ function setAct(label, fn, green) {
 function setCarBtn(label, fn) {
   const b = $('btnCar');
   if (!label) { b.classList.add('hidden'); carHandler = null; return; }
-  b.textContent = label; b.classList.remove('hidden'); carHandler = fn;
+  if (b.textContent !== label) b.textContent = label; b.classList.remove('hidden'); carHandler = fn;
 }
 function updateCityInteract() {
   const p = inCar && pcar ? pcar.pos : player.pos;
@@ -925,9 +925,10 @@ function updateCityInteract() {
   if (best) { setAct(`${best.icon} ${best.elevator ? '엘리베이터 타기 · ' : best.walkIn && best.id !== 'school' ? '들어가기 · ' : ''}${best.name}`, () => openPlace(best)); return; }
   const bdr = city.nearestBDoor(p.x, p.z, 1.7);
   if (bdr) { setAct(bldg.doorLabel(bdr), () => bldg.tryEnter(bdr)); return; }
-  const la = life.action(p) || transit.action(p) || pets.action();
+  const la = life.action(p) || transit.action(p);
   if (la) { setAct(la.label, la.fn, la.green); return; }
   const ped = peds.nearest(p, 2.2);
+  const pa = pets.action(); if (pa && !ped) { setAct(pa.label, pa.fn); return; }
   if (ped) { setAct(`💬 ${ped.name}에게 말 걸기`, () => { talkingPed = ped; ped.talk = 999; missions.talkSheet(ped, ST.hour(S) % 24); }); return; }
   setAct(null);
 }
@@ -1086,12 +1087,12 @@ function updateHUD(force) {
 // ───────── 인생 목표 ─────────
 const GOALS = [
   { id: 'eat', text: '편의점에서 밥 사 먹기', hint: '파란 링이 있는 24 마트에 들어가 보세요', done: () => S.ateOnce },
-  { id: 'job', text: '첫 돈 벌기', hint: '편의점 알바 · 번개배달 · 한빛그룹 중 하나를 골라요', done: () => S.totalEarned > 0 },
+  { id: 'job', text: '첫 돈 벌기', hint: '편의점 알바 · 번개배달 · 가게 알바 · 📱한빛잡 취업 중 하나를 골라요', done: () => S.totalEarned > 0 },
   { id: 'money', text: '100만 원 모으기', hint: '꾸준히 일하면 금방이에요', done: () => S.money >= 1000000 },
   { id: 'car', text: '첫 차 뽑기', hint: '드림모터스 전시장에서 중고 경차부터!', done: () => S.cars.length > 0 },
   { id: 'furn', text: '집에 가구 3개 들이기', hint: '홈데코에서 사고, 집에서 🛠 꾸미기로 배치', done: () => Object.values(S.placed).flat().filter(p => !['bed', 'fridge'].includes(p.id)).length >= 3 },
-  { id: 'promo', text: '회사에서 대리로 승진하기', hint: '한빛그룹에 출근하고, 집 책상에서 공부해요', done: () => S.officeRank >= 2 },
-  { id: 'apt', text: '아파트로 이사하기', hint: '행복 부동산 · 투룸 아파트 3,000만 원', done: () => S.homes.includes('apt') },
+  { id: 'promo', text: '회사에서 대리로 승진하기', hint: '📱한빛잡에서 회사에 지원하고 성실하게 출근해요', done: () => S.officeRank >= 2 || (S.bestRank?.office ?? -1) >= 3 },
+  { id: 'apt', text: '아파트로 이사하기', hint: '부동산에서 아파트 월세·전세·매매 계약 후 이사', done: () => S.homes.includes('apt') },
   { id: 'sport', text: '스포츠카 오너 되기', hint: '드림모터스 · 카이엔느 GT', done: () => S.cars.includes('sport') },
   { id: 'pent', text: '펜트하우스 입주', hint: '도시 꼭대기에서 야경 보기', done: () => S.homes.includes('pent') },
 ];
@@ -2196,9 +2197,12 @@ function phoneApp(id) {
   }
   if (id === 'me') {
     const r = S.officeHired ? ST.rank(S).name : '무직';
+    const pt = Object.values(S.parttime || {})[0];
+    const jobTxt = career?.job ? `${career.job.place} ${career.rankName()}` : S.officeHired ? '한빛그룹 ' + r : pt ? `${pt.name} 알바` : S.mart?.hired ? '편의점 알바' : S.deliveries ? '배달 기사' : '구직 중';
     phScreen.innerHTML = `<div class="ph-title">🧑 내 정보</div><div class="grid2">
-      <div class="stat"><span>직업</span><b>${S.officeHired ? '한빛그룹 ' + r : (S.deliveries ? '배달 기사' : S.martShifts ? '편의점 알바' : '구직 중')}</b></div>
-      <div class="stat"><span>사는 곳</span><b>${HOMES.find(h => h.id === S.home).name}</b></div>
+      <div class="stat"><span>직업</span><b>${jobTxt}</b></div>
+      <div class="stat"><span>사는 곳</span><b>${S.homeUnit ? S.homeUnit.name : (HOMES.find(h => h.id === S.home) || HOMES[0]).name}</b></div>
+      <div class="stat"><span>신용점수</span><b>${S.credit ?? 750}점</b></div><div class="stat"><span>건강</span><b>${S.sick ? '🤧 감기' : '😊 튼튼'}</b></div>
       <div class="stat"><span>배고픔</span><b>${Math.round(S.hunger)}</b></div><div class="stat"><span>에너지</span><b>${Math.round(S.energy)}</b></div>
       <div class="stat"><span>기분</span><b>${Math.round(S.mood)}</b></div><div class="stat"><span>체력 레벨</span><b>${S.fitness}</b></div>
       <div class="stat"><span>살아온 날</span><b>${ST.day(S)}일</b></div><div class="stat"><span>목표 달성</span><b>${(S.goalsDone || []).length}/${GOALS.length}</b></div></div>`;

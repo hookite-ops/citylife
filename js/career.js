@@ -91,7 +91,7 @@ export class Career {
     for (let i = 0; i < 6; i++) {
       const s = offices[Math.floor(R() * offices.length)], B = this.c.city.bldgOf(s);
       const co = companiesOf(B); const c = co[Math.floor(R() * co.length)]; if (!c || out.some(o => o.co?.id === c.id)) continue;
-      out.push({ id: 'p' + c.id, kind: 'office', co: c, title: `${c.name} ${pick(['신입 사원', '경력 사원', '인턴'])}`, ind: c.ind });
+      out.push({ id: 'p' + c.id, kind: 'office', co: c, title: `${c.name} ${['신입 사원', '경력 사원', '인턴'][Math.floor(R() * 3)]}`, ind: c.ind });
     }
     for (const k of ['police', 'fire', 'doctor', 'nurse', 'pharmacist', 'stylist', 'chef', 'barista', 'baker']) out.push({ id: 'p' + k, kind: k, title: `${CAREERS[k].name} ${k === 'police' ? '공채 (경찰 공무원)' : k === 'fire' ? '공채 (소방 공무원)' : '채용'}` });
     this._post = out; this._pw = week;
@@ -191,7 +191,8 @@ export class Career {
   }
   hire(a) {
     const S = this.S, C = CAREERS[a.kind], p = a.place;
-    const rank0 = a.kind === 'office' ? (S.uni?.graduated ? 1 : 0) + (S.uni?.degree === 'biz' ? 1 : 0) : 0;
+    const base = a.kind !== 'office' ? 0 : /인턴/.test(a.title || '') ? 0 : /경력/.test(a.title || '') ? Math.max(2, S.bestRank?.office ?? 0) : 1;
+    const rank0 = a.kind === 'office' ? Math.min(4, base + (S.uni?.degree === 'biz' ? 1 : 0)) : 0;
     S.career = { kind: a.kind, place: p.name, bid: p.bid, n: p.n, k: p.k ?? null, co: p.co || null, rank: rank0, pay: a.co?.pay || 1, start: C.hours[0], end: C.hours[1], days: 0, monthDays: 0, overtime: 0, perf: 0, warnings: 0, lastWork: -1, hiredDay: ST.day(S), nextPay: ST.day(S) + 30 };
     a.status = '🎉 최종 합격!';
     S.applications = (S.applications || []).filter(q => q !== a);
@@ -263,12 +264,13 @@ export class Career {
       const h = this.hour(), wd = this.wd();
       if (wd >= 5) return z.kind === 'odesk' || z.kind === 'counter' ? { label: '🗓️ 오늘은 쉬는 날이에요', fn: () => {} } : null;
       if (j.lastWork === ST.day(S)) return null;
-      if (h >= j.start - 1.5 && h < j.end - 1 && (z.kind === 'odesk' || z.kind === 'counter' || z.kind === 'reception' || z.kind === 'exam' || z.kind === 'inshop')) return { label: `💼 출근하기 (${fh(j.start)})`, fn: () => this.clockIn(), green: true };
+      if (h >= j.start - 1.5 && h < j.end - 1 && (z.kind === 'odesk' || z.kind === 'meeting' || z.kind === 'counter' || z.kind === 'reception' || z.kind === 'exam' || z.kind === 'inshop')) return { label: `💼 출근하기 (${fh(j.start)})`, fn: () => this.clockIn(), green: true };
       return null;
     }
     // 근무 중
-    if (d.q.length) return { label: `📋 ${d.q[0].icon} ${d.q[0].name} (할 일 ${d.q.length})`, fn: () => this.doTask(), green: true };
-    if (this.hour() >= j.end) return { label: `🏠 퇴근하기${d.ot ? ' (야근 끝)' : ''}`, fn: () => this.clockOut(), green: true };
+    const late = this.hour() >= j.end;
+    if (d.q.length) return { label: `📋 ${d.q[0].icon} ${d.q[0].name} (할 일 ${d.q.length})`, fn: () => this.doTask(), green: true, alt: late ? { label: '🏠 퇴근하기', fn: () => this.clockOut() } : null };
+    if (this.hour() >= j.end) return { label: `🏠 퇴근하기${this.hour() > j.end + 0.3 ? ' (야근 끝)' : ''}`, fn: () => this.clockOut(), green: true };
     return { label: `💼 근무 중 · 할 일 기다리는 중`, fn: () => toast('📧 곧 일이 들어와요') };
   }
   clockIn() {
@@ -392,7 +394,7 @@ export class Career {
   }
   hudText() {
     const d = this.day, j = this.job; if (!d || !j) return '';
-    return `${CAREERS[j.kind].icon} ${j.place} 근무 중 · ${this.rankName()}<small>할 일 ${d.q.length} · 오늘 ${d.done}건 · 퇴근 ${fh(j.end)}${d.ot ? ' (야근 중)' : ''}</small>`;
+    return `${CAREERS[j.kind].icon} ${j.place} 근무 중 · ${this.rankName()}<small>할 일 ${d.q.length} · 오늘 ${d.done}건 · 퇴근 ${fh(j.end)}${this.hour() > j.end + 0.3 ? ' (야근 중)' : ''}</small>`;
   }
 
   // ─ 자격증 학원 수업 · 시험 ─

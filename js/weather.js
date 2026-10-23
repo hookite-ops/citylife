@@ -75,7 +75,8 @@ export class Weather {
   isRainy(minutes) { return !!precipAt(minutes); }
   update(dt, minutes, camPos, inside) {
     const k = precipAt(minutes);
-    if (k !== this.kind) { const was = this.kind; this.kind = k; this.raining = !!k; this.onChange?.(k, was); }
+    if (k !== this.kind) { const was = this.kind; this.kind = k; this.raining = !!k; if (this.started) this.onChange?.(k, was); }
+    this.started = true;
     const want = k ? 1 : 0;
     this.amt += (want - this.amt) * Math.min(1, dt * 0.25);
     this.snowAmt += ((k === 'snow' ? 1 : k === 'rain' ? 0 : this.snowAmt) - this.snowAmt) * Math.min(1, dt * 0.3);
