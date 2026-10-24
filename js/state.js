@@ -7,8 +7,9 @@ export function newState() {
   return {
     v: 1,
     name: '나',
-    money: 80000,
-    cash: 20000,                   // 지갑 현금
+    money: 0,                      // 아기로 태어나요 (용돈 · 성인 축하금)
+    cash: 0,                       // 지갑 현금
+    stage: 'baby', grow: 0,        // 성장 단계: baby → elem → middle → high → adult (성인에서 멈춤)
     minutes: 7 * 60 + 30,          // 1일차 07:30부터
     hunger: 75, energy: 85, mood: 70,
     fitness: 0,
@@ -55,6 +56,7 @@ export function load() {
     inventory: Object.assign(base.inventory, s.inventory || {}), placed: Object.assign(base.placed, s.placed || {}),
     settings: Object.assign(base.settings, s.settings || {}), stats: Object.assign(base.stats, s.stats || {}),
   });
+  if (!('stage' in s)) out.stage = 'adult';   // 예전 저장은 그대로 성인
   if (!Number.isFinite(out.money)) out.money = 0;
   for (const k of ['hunger', 'energy', 'mood']) if (!Number.isFinite(out[k])) out[k] = 60;
   return out;

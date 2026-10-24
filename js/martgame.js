@@ -5,6 +5,7 @@ import * as ST from './state.js';
 import { $, toast, openSheet, closeSheet, sheetOpen, bigMsg, fade, wait, row, bindActs } from './ui.js';
 import { QUEUE, emojiSprite } from './mart.js';
 import { pickMealSheet } from './meal.js';
+import { gate } from './lifestage.js';
 
 // 편의점: 쇼핑 · 계산 · 알바 근무
 export class MartGame {
@@ -293,6 +294,7 @@ export class MartGame {
 
   // ───────── 알바: 면접 ─────────
   interviewSheet() {
+    if (!gate.can('work')) return;
     const M = this.M, S = this.S;
     const today = ST.day(S);
     if (M.firedUntil && today < M.firedUntil) return openSheet({ icon: '🙅', title: '점장님', sub: '', html: `<p class="note">"저번에 무단결근이 너무 많았잖아요… ${M.firedUntil - today}일 뒤에 다시 얘기해요."</p>` });

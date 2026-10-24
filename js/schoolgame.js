@@ -5,6 +5,7 @@ import { $, toast, openSheet, closeSheet, bigMsg, fade, wait, row, bindActs } fr
 import { questions } from './quiz.js';
 import { LEVEL_NAME, emojiSprite } from './school.js';
 import { fmtH, stars } from './martgame.js';
+import { gate } from './lifestage.js';
 
 const TUITION = 1500000;
 const SESSIONS = 8;
@@ -38,6 +39,7 @@ export class SchoolGame {
   // 입장 전 확인 (true면 들어감)
   gate(e, enter) {
     const lv = e.school;
+    if (gate.stage() !== 'adult' && lv !== 'univ' && this.c.stage?.isStudentOf(lv)) { toast('🎒 등교! 수업은 평일 9시 · 13시'); return enter(); }
     if (lv === 'univ' || this.isMine(lv)) return enter();
     const U = this.U;
     const canApply = U.degree === 'edu' && !this.T.hired;
@@ -82,6 +84,7 @@ export class SchoolGame {
           if (slot) return { label: `📖 수업 듣기 (${U.sessions + 1}/${SESSIONS}회차)`, fn: () => this.lecture(slot), green: true };
           return { label: '🪑 강의실 · 다음 수업 확인', fn: () => this.statusSheet() };
         }
+        const sa = this.c.stage?.seatAction(level, this); if (sa) return sa;
         return { label: '🪑 교실', fn: () => toast(per === 'class' ? '수업 중이에요. 조용히!' : '학생들 자리예요') };
       }
       case 'board':
@@ -106,9 +109,9 @@ export class SchoolGame {
         if (level === 'univ') return { label: '📚 도서관에서 공부하기', fn: () => this.studySheet() };
         return null;
       case 'cafeteria': {
-        const free = level !== 'univ' && (this.isMine(level));
+        const free = level !== 'univ' && (this.isMine(level) || !!this.c.stage?.isStudentOf(level));
         if (per !== 'lunch' && level !== 'univ') return { label: '🍱 급식실 · 점심시간 12시', fn: () => toast('급식은 점심시간(12~13시)에만 나와요') };
-        return { label: free ? '🍱 급식 받기 (교직원 무료)' : `🍱 학식 사 먹기 (${won(4500)})`, fn: () => this.lunch(free), green: true };
+        return { label: free ? (this.isMine(level) ? '🍱 급식 받기 (교직원 무료)' : '🍱 급식 받기 (학생 무료)') : `🍱 학식 사 먹기 (${won(4500)})`, fn: () => this.lunch(free), green: true };
       }
       case 'cafeseat': return null;
     }
@@ -117,6 +120,7 @@ export class SchoolGame {
 
   // ───────── 대학교: 입학 ─────────
   admissionSheet() {
+    if (!gate.can('univ')) return;
     const U = this.U;
     const tuition = this.tuition();
     openSheet({

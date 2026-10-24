@@ -6,6 +6,7 @@ import { planFloor, tenantMap, floorLabel, clearTenants } from './bplan.js';
 import { homeVacant } from './floorview.js';
 import { TYPES, SHOP_NAMES, NAMES_BY_TYPE, OVERRIDES, unitKey } from './tenants.js';
 import * as ST from './state.js';
+import { gate } from './lifestage.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const MONTH = 30;   // 30일마다 월세
@@ -156,6 +157,7 @@ export class RealEstate {
   // ─ 계약 ─
   contract(l, deal) {
     const S = this.S;
+    if (!gate.can('contract')) return;
     const need = deal === 'wolse' ? l.pr.deposit + l.pr.rent : deal === 'jeonse' ? l.pr.jeonse : (l.price || l.pr.buy);
     const fee = Math.round(need * (deal === 'wolse' ? 0.005 : 0.004) / 1000) * 1000;   // 중개수수료
     const total = need + fee;

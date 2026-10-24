@@ -6,6 +6,7 @@ import { floorLabel, tenantMap } from './bplan.js';
 import { OVERRIDES, unitKey, TYPES, SHOP_NAMES } from './tenants.js';
 import * as ST from './state.js';
 import { espressoGame, hoseGame } from './minigames.js';
+import { gate } from './lifestage.js';
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -131,6 +132,7 @@ export class Career {
   }
   apply(p) {
     const S = this.S;
+    if (!gate.can('career')) return;
     if (!(S.items?.idphoto > 0)) { toast('🪪 증명사진이 필요해요 · 사진관에서 찍어요', 'bad', 3000); return; }
     if (p.kind !== 'office' && !this.meets(p.kind)) { toast('📋 지원 자격이 안 돼요 · 조건을 확인하세요', 'bad', 3000); return; }
     S.items.idphoto--;
@@ -208,6 +210,7 @@ export class Career {
   }
   interview(a) {
     const S = this.S;
+    if (!gate.can('career')) return;
     const QS = [
       ['간단하게 자기소개 해 주세요.', ['맡은 일은 끝까지 해내는 사람입니다', '그냥… 평범한 사람이에요', '돈이 필요해서 왔어요'], 0],
       ['우리 회사에 지원한 이유는?', ['회사의 성장 가능성과 제 강점이 맞아서요', '집이 가까워서요', '아무 데나 붙고 싶어서요'], 0],

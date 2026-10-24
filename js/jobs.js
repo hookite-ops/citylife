@@ -6,6 +6,7 @@ import { won } from './config.js';
 import { unitKey } from './tenants.js';
 import * as ST from './state.js';
 import { espressoGame } from './minigames.js';
+import { gate } from './lifestage.js';
 
 export const MIN_WAGE = 10320;
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -114,6 +115,7 @@ export class JobGame {
     });
   }
   interview(key, s, bldg, sl, wage) {
+    if (!gate.can('work')) return;
     const Q = [
       { q: '손님이 주문을 잘못 말했다고 화를 내면?', a: ['"죄송합니다, 바로 다시 해 드릴게요!"', '"손님이 잘못 말하셨잖아요"', '못 들은 척한다'], ok: 0 },
       { q: '근무 시간에 갑자기 못 나오게 되면?', a: ['그냥 안 간다', '미리 사장님께 연락한다', '친구를 대신 보낸다'], ok: 1 },
